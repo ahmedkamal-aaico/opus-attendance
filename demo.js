@@ -1,7 +1,7 @@
 "use strict";
 /* Preview mode: replaces Supabase with an in-browser sample database. Nothing is saved to the server. */
 (function(){
-  const KEY = "opus-demo-db-v7", AS = "opus-demo-as", SIM = "opus-demo-sim";
+  const KEY = "opus-demo-db-v8", AS = "opus-demo-as", SIM = "opus-demo-sim";
   const OFFICE = { lat:24.4290032, lng:54.4632417 };
   const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"});
   const dk = ms => fmt.format(ms);
@@ -11,7 +11,7 @@
 
   function build(){
     const shifts = [{id:"s08",start_time:"08:00:00",end_time:"17:00:00"},{id:"s09",start_time:"09:00:00",end_time:"18:00:00"},{id:"s14",start_time:"14:00:00",end_time:"23:00:00"}];
-    const S = { id:1, tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, min_available:1, break_alert_after_min:15, office_lat:OFFICE.lat, office_lng:OFFICE.lng, radius_m:500, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", alerts_enabled:true, alert_from:"Opus Attendance <attendance@aaico.com>" };
+    const S = { id:1, tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, break_wc_min:5, break_wc_count:2, min_available:1, break_alert_after_min:15, office_lat:OFFICE.lat, office_lng:OFFICE.lng, radius_m:500, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", alerts_enabled:true, alert_from:"Opus Attendance <attendance@aaico.com>" };
     const people = [["Soufiane Douhaib","s08"],["Mahmoud Tharwat","s09"],["Moataz Noamani","s08"],["Minu Boban","s14"],["Asem Elsebaey","s09"]];
     const employees = people.map(([name,shift],i) => ({ id:"e"+(i+1), name, email:name.split(" ")[0].toLowerCase()+"@demo.aaico.com", shift_id:shift, tracked:true, is_admin:false, active:true, since:null }));
     employees.unshift({ id:"m1", name:"Manager (you)", email:"manager@demo.aaico.com", shift_id:"s08", tracked:false, is_admin:true, active:true, since:null });
@@ -153,7 +153,7 @@
         const used = k => DB.breaks.filter(b=>b.employee_id===e.id && b.day===today && b.kind===k).length;
         return { employee_id:e.id, name:e.name, shift_start:sh.start_time, shift_end:sh.end_time, is_off: sc ? !sc.shift_id : !S.workdays.includes(wd),
           check_in:a2?.check_in||null, check_out:a2?.check_out||null, mode:a2?.mode||null, break_kind:ob?.kind||null, break_started:ob?.started_at||null,
-          break_allowed: ob ? (ob.kind==="long" ? S.break_long_min : S.break_short_min) : null, short_used:used("short"), long_used:used("long") };
+          break_allowed: ob ? (ob.kind==="long" ? S.break_long_min : ob.kind==="wc" ? S.break_wc_min : S.break_short_min) : null, short_used:used("short"), long_used:used("long"), wc_used:used("wc") };
       });
       return { data:tr, error:null };
     }
@@ -161,7 +161,7 @@
       if(!DB.attendance.some(r=>r.employee_id===m.id && r.day===today && !r.check_out)) return fail("Check in before starting a break.");
       if(DB.breaks.some(b=>b.employee_id===m.id && !b.ended_at)) return fail("You are already on a break.");
       const used = DB.breaks.filter(b=>b.employee_id===m.id && b.day===today && b.kind===a.p_kind).length;
-      if(used >= (a.p_kind==="short" ? S.break_short_count : S.break_long_count)) return fail("No breaks of that length left today.");
+      if(used >= (a.p_kind==="short" ? S.break_short_count : a.p_kind==="wc" ? S.break_wc_count : S.break_long_count)) return fail("No breaks of that type left today.");
       const avail = DB.attendance.filter(r=>r.day===today && !r.check_out && r.employee_id!==m.id && !DB.breaks.some(b=>b.employee_id===r.employee_id && !b.ended_at)).length;
       if(avail < S.min_available) return fail(`At least ${S.min_available} teammate(s) must stay available. Wait until someone is back.`);
       const r = { id:DB._seq++, employee_id:m.id, day:today, kind:a.p_kind, started_at:new Date().toISOString(), ended_at:null };

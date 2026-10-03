@@ -8,7 +8,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let serverOffset = 0;
 const now = () => Date.now() + serverOffset;
-let S = { tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, min_available:1, break_alert_after_min:15, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", radius_m:500 };
+let S = { tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, break_wc_min:5, break_wc_count:2, min_available:1, break_alert_after_min:15, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", radius_m:500 };
 const fmts = {};
 function parts(ms){
   let f = fmts[S.tz];
@@ -198,7 +198,8 @@ async function refreshLive(){
   if(["live","office","remote"].includes(tab)) update();
   paintAlerts();
 }
-function breaksLeft(r){ return { short: Math.max(0, S.break_short_count - (r?.short_used||0)), long: Math.max(0, S.break_long_count - (r?.long_used||0)) }; }
+function breaksLeft(r){ return { short: Math.max(0, S.break_short_count - (r?.short_used||0)), long: Math.max(0, S.break_long_count - (r?.long_used||0)), wc: Math.max(0, S.break_wc_count - (r?.wc_used||0)) }; }
+const breakName = r => r.break_kind==="wc" ? "WC break" : `${r.break_allowed}-min break`;
 function paintAlerts(){
   const bar = $("#alertbar"); if(!bar) return;
   const msgs = [];
@@ -236,9 +237,9 @@ views.live = {
       <div class="board">${rows.map(({r,st}) => { const [t,c] = STATUS[st.s]; const left = breaksLeft(r);
         return `<div class="pcard st-${c}" ${st.s==="break"||st.s==="over" ? "data-bwrap" : ""}>
           <div class="pc-top"><b>${esc(r.name)}${r.employee_id===me.id?" <span class='muted small'>(you)</span>":""}</b><span class="pill p-${c}">${t}</span></div>
-          <div class="small muted">${r.is_off && !r.check_in ? "No shift today" : `Shift ${short(r.shift_start)} to ${short(r.shift_end)}`}${r.check_in && !r.check_out ? `, ${r.mode==="remote"?"remote":"office"} since ${tstr(r.check_in)}` : ""}</div>
-          ${st.s==="break"||st.s==="over" ? `<div class="pc-timer">${r.break_allowed}-min break, <span data-bstart="${Date.parse(r.break_started)}" data-ballow="${r.break_allowed}"></span></div>` : ""}
-          ${r.check_in && !r.check_out ? `<div class="small muted">Breaks left: ${left.short} × ${S.break_short_min} min, ${left.long} × ${S.break_long_min} min</div>` : ""}
+          <div class="small muted">${r.is_off && !r.check_in ? "No shift today" : `Shift ${short(r.shift_start)} to ${short(r.shift_end)}`}${me.is_admin && r.check_in && !r.check_out ? `, ${r.mode==="remote"?"remote":"office"} since ${tstr(r.check_in)}` : ""}</div>
+          ${st.s==="break"||st.s==="over" ? `<div class="pc-timer">${breakName(r)}, <span data-bstart="${Date.parse(r.break_started)}" data-ballow="${r.break_allowed}"></span></div>` : ""}
+          ${r.check_in && !r.check_out ? `<div class="small muted">Breaks left: ${left.short} × ${S.break_short_min} min, ${left.long} × ${S.break_long_min} min, ${left.wc} × WC</div>` : ""}
         </div>`; }).join("")}</div>`;
     tickBreaks();
   }
@@ -249,7 +250,7 @@ function breakPanel(rec, mode){
   const mineRow = live.find(r => r.employee_id === me.id);
   const st = mineRow ? liveState(mineRow) : { s:"available" };
   if(st.s==="break" || st.s==="over"){
-    return `<section class="panel brk" data-bwrap><div class="punch"><div><div class="small muted">On a ${mineRow.break_allowed}-min break since ${tstr(mineRow.break_started)}</div>
+    return `<section class="panel brk" data-bwrap><div class="punch"><div><div class="small muted">On a ${breakName(mineRow)} since ${tstr(mineRow.break_started)}</div>
       <div class="brk-time" data-bstart="${Date.parse(mineRow.break_started)}" data-ballow="${mineRow.break_allowed}"></div></div>
       <button class="btn primary big" id="bEnd">End break</button></div></section>`;
   }
@@ -261,6 +262,7 @@ function breakPanel(rec, mode){
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" id="bShort" ${!left.short||blocked?"disabled":""}>Start ${S.break_short_min}-min break (${left.short} left)</button>
       <button class="btn" id="bLong" ${!left.long||blocked?"disabled":""}>Start ${S.break_long_min}-min break (${left.long} left)</button>
+      <button class="btn" id="bWc" ${!left.wc||blocked?"disabled":""}>${S.break_wc_min}Min/WC (${left.wc} left)</button>
     </div>
     <p class="hint">${blocked ? `Wait until a teammate is free. At least ${S.min_available} must stay available.${away.length ? " On break now: "+esc(away.join(", "))+"." : ""}` : `Take them in any order during your shift. ${others} teammate(s) available now.`}</p>
   </section>`;
@@ -338,6 +340,7 @@ function checkinView(mode){
       const bs = $("#bShort"), bl = $("#bLong"), be = $("#bEnd");
       if(bs) bs.onclick = () => breakAction("start_break", { p_kind:"short" }, bs);
       if(bl) bl.onclick = () => breakAction("start_break", { p_kind:"long" }, bl);
+      const bw = $("#bWc"); if(bw) bw.onclick = () => breakAction("start_break", { p_kind:"wc" }, bw);
       if(be) be.onclick = () => breakAction("end_break", {}, be);
       const bi = $("#bIn"), bo = $("#bOut");
       if(bi) bi.onclick = () => punch("in", mode, bi);
@@ -634,10 +637,12 @@ views.settings = {
           <label class="f">Short breaks per shift<input type="number" min="0" id="sBsc" value="${S.break_short_count}"></label>
           <label class="f">Long break (min)<input type="number" min="1" id="sBlm" value="${S.break_long_min}"></label>
           <label class="f">Long breaks per shift<input type="number" min="0" id="sBlc" value="${S.break_long_count}"></label>
+          <label class="f">WC break (min)<input type="number" min="1" id="sBwm" value="${S.break_wc_min}"></label>
+          <label class="f">WC breaks per shift<input type="number" min="0" id="sBwc" value="${S.break_wc_count}"></label>
           <label class="f">Must stay available<input type="number" min="0" id="sMinA" value="${S.min_available}"></label>
           <label class="f">Alert after (min over)<input type="number" min="1" id="sBal" value="${S.break_alert_after_min}"></label>
         </div>
-        <p class="hint">Over the break length shows red on the Live board. Past the alert time, the employee and all managers get an email.</p>
+        <p class="hint">All breaks, WC included, need a teammate to stay available. Over the break length shows red on the Live board. Past the alert time, the employee and all managers get an email.</p>
       </div>
       <div class="panel"><h2>Office location</h2>
         <div class="grid">
@@ -668,6 +673,7 @@ views.settings = {
         alerts_enabled: $("#sAl").checked,
         break_short_min: Math.max(1, +$("#sBsm").value||15), break_short_count: Math.max(0, Math.round(+$("#sBsc").value||0)),
         break_long_min: Math.max(1, +$("#sBlm").value||30), break_long_count: Math.max(0, Math.round(+$("#sBlc").value||0)),
+        break_wc_min: Math.max(1, +$("#sBwm").value||5), break_wc_count: Math.max(0, Math.round(+$("#sBwc").value||0)),
         min_available: Math.max(0, Math.round(+$("#sMinA").value||0)), break_alert_after_min: Math.max(1, +$("#sBal").value||15), alert_from: $("#sFrom").value.trim() || null
       };
       e.target.disabled = true;
