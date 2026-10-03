@@ -1,7 +1,7 @@
 "use strict";
 /* Preview mode: replaces Supabase with an in-browser sample database. Nothing is saved to the server. */
 (function(){
-  const KEY = "opus-demo-db-v3", AS = "opus-demo-as", SIM = "opus-demo-sim";
+  const KEY = "opus-demo-db-v4", AS = "opus-demo-as", SIM = "opus-demo-sim";
   const OFFICE = { lat:24.4290032, lng:54.4632417 };
   const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"});
   const dk = ms => fmt.format(ms);
@@ -50,7 +50,7 @@
       attendance.push({ employee_id:e.id, day:k, mode: remote ? "remote" : "office", check_in:at(k,start+off), check_out: k===today ? null : at(k,end+Math.floor(rnd()*20)), in_dist: remote ? null : 20 + Math.floor(rnd()*200), out_dist:null });
     }
     const adjustments = [{ id:1, employee_id:"e3", month:prev, type:"red", delta:-1, reason:"System outage, late check-in excused", created_by:"m1", created_at:new Date().toISOString() }];
-    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, _seq:2 };
+    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, schedule_files:[], files:{}, _seq:2 };
   }
   let DB;
   try{ DB = JSON.parse(sessionStorage.getItem(KEY)); }catch{}
@@ -77,6 +77,7 @@
     maybeSingle(){ this.one="maybe"; return this; }
     single(){ this.one="single"; return this; }
     insert(p){ this.op="insert"; this.payload=p; return this; }
+    upsert(p){ this.op="upsert"; this.payload=p; return this; }
     update(p){ this.op="update"; this.payload=p; return this; }
     delete(){ this.op="delete"; return this; }
     then(res){ try{ res(this.run()); }catch(e){ res({ data:null, error:{ message:e.message, code:e.code } }); } }
@@ -89,6 +90,13 @@
         if(this.ord){ const [c,asc] = this.ord; out.sort((a,b)=> (a[c]>b[c]?1:a[c]<b[c]?-1:0) * (asc?1:-1)); }
         return { data: this.one ? (out[0]||null) : out, error:null };
       }
+      if(this.op==="upsert"){
+        const k = this.t==="schedule_files" ? "month" : "id";
+        const ex = rows.find(r=>r[k]===this.payload[k]);
+        if(ex) Object.assign(ex, this.payload); else rows.push({...this.payload});
+        save(); return { data:null, error:null };
+      }
+      if(this.op==="insert" && Array.isArray(this.payload)){ rows.push(...this.payload.map(r=>({...r}))); save(); return { data:null, error:null }; }
       if(this.op==="insert"){
         const r = { ...this.payload };
         if(this.t==="employees"){ r.id = "e"+(DB._seq++); r.email = r.email||null; r.active = r.active ?? true; r.is_admin = r.is_admin ?? false; r.since = r.since ?? null; }
@@ -136,9 +144,14 @@
     navigator.geolocation.getCurrentPosition = ok => setTimeout(()=>ok({ coords:{ latitude:OFFICE.lat+jitter(), longitude:OFFICE.lng+jitter(), accuracy:10 } }), 300);
   }
 
+  const storage = { from: () => ({
+    upload: (path, blob) => new Promise(res => { const f = new FileReader(); f.onload = () => { DB.files = {}; DB.files[path] = f.result; save(); res({ data:{ path }, error:null }); }; f.readAsDataURL(blob); }),
+    createSignedUrl: async path => ({ data:{ signedUrl: DB.files[path] || null }, error:null })
+  }) };
+  const functions = { invoke: async () => ({ data:null, error:{ message:"Reading shifts from the image works on the live system once the API key is added. In the preview, fill the grid by tapping the days." } }) };
   window.supabase = { createClient: () => ({
     from: t => new Q(t),
-    rpc,
+    rpc, storage, functions,
     auth: {
       getUser: async () => ({ data:{ user:{ email: meRow().email } } }),
       getSession: async () => ({ data:{ session:{ demo:true } } }),

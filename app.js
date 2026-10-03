@@ -158,7 +158,7 @@ let tab = null;
 const views = {};
 function tabsFor(){
   const t = [];
-  if(me?.tracked) t.push(["office","Office"],["remote","Remote"],["mine","My points"]);
+  if(me?.tracked) t.push(["office","Office"],["remote","Remote"],["mine","My points"],["myschedule","My schedule"]);
   if(me?.is_admin){ if(t.length) t.push(["sep"]); t.push(["team","Team today"],["points","Points report"],["schedule","Schedule"],["people","Employees"],["settings","Settings"]); }
   return t;
 }
@@ -386,25 +386,125 @@ views.points = {
   }
 };
 
-/* ---------- admin: schedule (read-only grid) ---------- */
+/* ---------- schedule ---------- */
+async function shrink(file){
+  const img = await createImageBitmap(file);
+  const k = Math.min(1, 2200 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas"); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
+  const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+  return new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
+}
+const toB64 = blob => new Promise(r => { const f = new FileReader(); f.onload = () => r(String(f.result).split(",")[1]); f.readAsDataURL(blob); });
+async function scheduleImage(ym){
+  const { data } = await sb.from("schedule_files").select("*").eq("month", ym).maybeSingle();
+  if(!data) return null;
+  const u = await sb.storage.from("schedules").createSignedUrl(data.path, 3600);
+  return u.data?.signedUrl || null;
+}
+function monthOptions(sel){
+  const now0 = ymOf(dkey(now())), [y,m] = now0.split("-").map(Number), out = [];
+  for(let i=-2;i<=2;i++){ const d = new Date(Date.UTC(y, m-1+i, 15)); out.push(d.toISOString().slice(0,7)); }
+  return out.map(x=>`<option value="${x}" ${x===sel?"selected":""}>${esc(monthLabel(x))}</option>`).join("");
+}
 views.schedule = {
-  ym:null,
+  ym:null, draft:null, dirty:false,
   mount(el){
-    this.el = el; this.ym = this.ym || ymOf(dkey(now()));
-    const opts = [...lastMonths(3).reverse(), (()=>{ const [y,m]=this.ym.split("-").map(Number); const d=new Date(Date.UTC(y,m,1)); return d.toISOString().slice(0,7); })()];
-    el.innerHTML = `<div class="panel"><label class="f" style="max-width:220px">Month<select id="scSel">${[...new Set(opts)].map(m=>`<option value="${m}" ${m===this.ym?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label>
-      <p class="hint">The monthly schedule is loaded from the image you send to Claude. Days without an entry use the employee's default shift on working days.</p></div><div id="scBody"><p class="muted">Loading</p></div>`;
-    $("#scSel").onchange = e => { this.ym = e.target.value; loadTeam(this.ym); };
-    loadTeam(this.ym);
+    this.el = el; this.ym = this.ym || ymOf(dkey(now())); this.draft = null; this.dirty = false;
+    el.innerHTML = `
+      <div class="panel" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;justify-content:space-between">
+        <label class="f" style="min-width:200px">Month<select id="scSel">${monthOptions(this.ym)}</select></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <label class="btn" for="scFile">Upload schedule image</label><input type="file" id="scFile" accept="image/*" hidden>
+          <button class="btn" id="scRead">Read shifts from image</button>
+        </div>
+      </div>
+      <div class="panel"><h2>Schedule image</h2><div id="scImg"><p class="muted">Loading</p></div></div>
+      <div class="panel"><div class="shift-head"><h2 style="margin:0">Shifts by day</h2><span class="small muted">Tap a day to change it</span></div>
+        <div id="scBody"><p class="muted">Loading</p></div>
+        <div class="actions"><button class="btn" id="scDiscard">Discard changes</button><button class="btn primary" id="scSave">Save schedule</button></div>
+      </div>`;
+    $("#scSel").onchange = e => { if(this.dirty && !confirm("Discard unsaved changes?")){ e.target.value = this.ym; return; } this.ym = e.target.value; this.draft = null; this.dirty = false; this.loadImg(); loadTeam(this.ym); };
+    $("#scFile").onchange = e => this.upload(e.target.files[0]);
+    $("#scRead").onclick = () => this.read();
+    $("#scDiscard").onclick = () => { this.draft = null; this.dirty = false; this.update(); };
+    $("#scSave").onclick = e => this.save(e.target);
+    this.loadImg(); loadTeam(this.ym);
   },
+  async loadImg(){
+    const ym = this.ym, url = await scheduleImage(ym);
+    if(tab!=="schedule" || ym!==this.ym) return;
+    this.hasImg = !!url;
+    $("#scImg").innerHTML = url ? `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="schedimg" src="${esc(url)}" alt="Schedule for ${esc(monthLabel(ym))}"></a>` : `<p class="empty">No image for ${esc(monthLabel(ym))} yet. Upload a photo or screenshot of the schedule.</p>`;
+  },
+  async upload(file){
+    if(!file) return;
+    toast("Uploading");
+    try{
+      const blob = await shrink(file); this.blob = blob;
+      const path = `${this.ym}/${Date.now()}.jpg`;
+      const up = await sb.storage.from("schedules").upload(path, blob, { contentType:"image/jpeg", upsert:true });
+      if(up.error) throw up.error;
+      const rec = await sb.from("schedule_files").upsert({ month:this.ym, path, updated_at:new Date().toISOString() });
+      if(rec.error) throw rec.error;
+      toast("Image uploaded. Use Read shifts from image, or fill the grid."); this.loadImg();
+    }catch(e){ toast(errMsg(e)); }
+    $("#scFile").value = "";
+  },
+  async read(){
+    const b = $("#scRead"); b.disabled = true; b.textContent = "Reading image";
+    try{
+      let blob = this.blob;
+      if(!blob){ const url = await scheduleImage(this.ym); if(!url) throw new Error("Upload the schedule image first."); blob = await (await fetch(url)).blob(); }
+      const { data, error } = await sb.functions.invoke("read-schedule", { body:{ month:this.ym, image: await toB64(blob), mediaType:"image/jpeg" } });
+      if(error){ let m = error.message; try{ m = (await error.context.json()).error || m; }catch{} throw new Error(m); }
+      this.ensureDraft(); let n = 0;
+      for(const [eid, days] of Object.entries(data.schedule||{})) for(const [k,v] of Object.entries(days)){ this.draft[`${eid}|${k}`] = v==="off" ? null : v; n++; }
+      this.dirty = n > 0; this.update();
+      toast(n ? `Filled ${n} day(s). Check the grid, then Save schedule.` : "Could not find shifts in the image.");
+      if(data.notes) setTimeout(()=>toast(data.notes), 3400);
+    }catch(e){ toast(errMsg(e)); }
+    b.disabled = false; b.textContent = "Read shifts from image";
+  },
+  ensureDraft(){ if(!this.draft){ this.draft = {}; for(const [k,v] of Object.entries(team.sched)) if(k.split("|")[1].startsWith(this.ym)) this.draft[k] = v; } },
   update(){
     if(tab!=="schedule") return;
     if(team.loading || team.ym !== this.ym){ $("#scBody").innerHTML = `<p class="muted">Loading</p>`; return; }
-    const days = monthKeys(this.ym), list = tracked();
-    const code = (e,k) => { const sf = shiftFor(e,k,team.sched); return sf.off ? `<span class="muted">Off</span>` : `<span${sf.planned?"":' class="muted"'}>${esc(sf.sh.start)}</span>`; };
-    $("#scBody").innerHTML = `<div class="panel scroll"><table class="rows sched"><thead><tr><th>Employee</th>${days.map(k=>`<th class="num">${DOW[wdOf(k)].slice(0,2)}<br>${+k.slice(8)}</th>`).join("")}</tr></thead><tbody>
-      ${list.map(e=>`<tr><td>${esc(e.name)}</td>${days.map(k=>`<td class="num small">${code(e,k)}</td>`).join("")}</tr>`).join("")}</tbody></table>
-      <p class="hint">Grey times are defaults, not from an uploaded schedule.</p></div>`;
+    this.ensureDraft();
+    const days = monthKeys(this.ym), list = tracked(), D = this.draft;
+    const label = (e,k) => { const v = D[`${e.id}|${k}`]; if(v===null) return ["Off","off"]; if(v && shifts[v]) return [shifts[v].start.replace(":00",""),"set"]; const def = isWorkday(k) ? (shifts[e.shift_id]||{}).start : null; return [def ? def.replace(":00","") : "Off", "def"]; };
+    $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="rows sched"><thead><tr><th>Employee</th>${days.map(k=>`<th class="num">${DOW[wdOf(k)].slice(0,2)}<br>${+k.slice(8)}</th>`).join("")}</tr></thead><tbody>
+      ${list.map(e=>`<tr><td>${esc(e.name)}</td>${days.map(k=>{ const [t,c] = label(e,k); return `<td class="num"><button class="cell c-${c}" data-k="${e.id}|${k}" title="${esc(e.name)}, ${esc(prettyDate(k))}">${t}</button></td>`; }).join("")}</tr>`).join("")}
+      </tbody></table></div>
+      <p class="hint">Bold = set in the schedule. Grey = default shift on working days. Tapping cycles 08, 09, 14, Off, default. ${this.dirty ? "<b>Unsaved changes.</b>" : ""}</p>` : `<p class="empty">No tracked employees.</p>`;
+    $("#scBody").querySelectorAll(".cell").forEach(btn => btn.onclick = () => {
+      const k = btn.dataset.k, cur = D[k], order = [undefined, ...Object.keys(shifts), null];
+      const i = order.findIndex(x => x === cur); const next = order[(i+1) % order.length];
+      if(next === undefined) delete D[k]; else D[k] = next;
+      this.dirty = true; this.update();
+    });
+  },
+  async save(btn){
+    if(!this.draft){ toast("Nothing to save."); return; }
+    btn.disabled = true;
+    const a = `${this.ym}-01`, b = monthEnd(this.ym);
+    const rows = Object.entries(this.draft).filter(([k]) => k.split("|")[1] >= a && k.split("|")[1] <= b).map(([k,v]) => ({ employee_id:k.split("|")[0], day:k.split("|")[1], shift_id:v }));
+    const del = await sb.from("schedule").delete().gte("day", a).lte("day", b);
+    const ins = del.error ? del : (rows.length ? await sb.from("schedule").insert(rows) : { error:null });
+    btn.disabled = false;
+    if(ins.error){ toast(errMsg(ins.error)); return; }
+    this.dirty = false; this.draft = null; toast("Schedule saved"); loadTeam(this.ym);
+  }
+};
+views.myschedule = {
+  mount(el){
+    this.el = el; const ym = ymOf(dkey(now()));
+    el.innerHTML = `<div class="panel"><h2>${esc(monthLabel(ym))} schedule</h2><div id="msImg"><p class="muted">Loading</p></div></div><div class="panel"><h2>My shifts</h2><div id="msList"></div></div>`;
+    scheduleImage(ym).then(url => { if(tab!=="myschedule") return; $("#msImg").innerHTML = url ? `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="schedimg" src="${esc(url)}" alt="Schedule"></a>` : `<p class="empty">The manager has not uploaded this month's schedule yet.</p>`; });
+    (mine.ym===ym ? Promise.resolve() : loadMine(ym)).then(()=>{
+      if(tab!=="myschedule") return;
+      const today = dkey(now());
+      $("#msList").innerHTML = `<div class="scroll"><table class="rows"><tbody>${monthKeys(ym).filter(k=>k>=today).map(k=>{ const sf = shiftFor(me,k,mine.sched); return `<tr><td>${esc(prettyDate(k))}${k===today?" <span class='chip c-pending'>Today</span>":""}</td><td>${sf.off?`<span class="muted">Off</span>`:`${esc(sf.sh.start)} to ${esc(sf.sh.end)}`}</td></tr>`; }).join("")}</tbody></table></div>`;
+    });
   }
 };
 
