@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Opus Support Attendance | Applied AI</title>
+<script>try{var t=localStorage.getItem("opus-theme");if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -139,7 +140,15 @@ textarea.csv{width:100%;min-height:140px;font-family:ui-monospace,Menlo,monospac
 [hidden]{display:none!important}
 .btn.small{padding:5px 10px;font-size:13px}
 .logo{display:block;height:28px;width:auto}
-@media (prefers-color-scheme:dark){.logo{filter:invert(1)}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .logo{filter:invert(1)}}
+:root[data-theme="dark"] .logo{filter:invert(1)}
+.theme-btn{display:inline-flex;align-items:center;gap:6px}
+.theme-btn .sw{width:28px;height:16px;border-radius:999px;background:var(--line);position:relative;transition:background .15s}
+.theme-btn .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--surface);transition:left .15s}
+.theme-btn[aria-pressed="true"] .sw{background:var(--accent)}
+.theme-btn[aria-pressed="true"] .sw::after{left:14px}
+.login-top{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:16px}
+@media (prefers-reduced-motion:reduce){.theme-btn .sw,.theme-btn .sw::after{transition:none}}
 header.top .brand{display:flex;align-items:center;gap:14px}
 header.top .brand small{display:inline;border-left:1px solid var(--line);padding-left:14px;font-size:13px}
 #login{min-height:100%;display:flex;align-items:center;justify-content:center;padding:32px 16px}
@@ -164,11 +173,16 @@ header.top .brand small{display:inline;border-left:1px solid var(--line);padding
 .cell.c-def{color:var(--muted)}
 .cell.c-off{color:var(--muted);text-decoration:line-through}
 label.btn{display:inline-block}
+.edit td:first-child{white-space:nowrap;padding-right:10px}
+.edit td,.edit th{padding:6px 4px}
+.edit .inl{padding:6px 6px;font-size:13.5px}
+.edit input[type=date]{width:132px}
 footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
 </style>
 </head>
 <body>
 <section id="login" hidden>
+  <div class="login-top"><button class="btn small theme-btn" data-theme-toggle><span class="sw"></span><span class="tl">Night mode</span></button></div>
   <div class="login-card">
     <img class="logo" src="/logo.png" alt="Applied AI">
     <h1>Opus Support Attendance</h1>
@@ -190,7 +204,7 @@ footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
 <div class="wrap" id="app" hidden>
   <header class="top">
     <div class="brand"><img class="logo" src="/logo.png" alt="Applied AI"><small>Opus Support Attendance</small></div>
-    <div class="who"><span id="who"></span><button class="btn small" id="signout">Sign out</button></div>
+    <div class="who"><span id="who"></span><button class="btn small theme-btn" data-theme-toggle><span class="sw"></span><span class="tl">Night mode</span></button><button class="btn small" id="signout">Sign out</button></div>
   </header>
   <nav class="tabs" id="tabs" role="tablist"></nav>
   <main id="main"></main>

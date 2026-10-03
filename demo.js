@@ -91,9 +91,11 @@
         return { data: this.one ? (out[0]||null) : out, error:null };
       }
       if(this.op==="upsert"){
-        const k = this.t==="schedule_files" ? "month" : "id";
-        const ex = rows.find(r=>r[k]===this.payload[k]);
-        if(ex) Object.assign(ex, this.payload); else rows.push({...this.payload});
+        const keyOf = r => this.t==="schedule_files" ? r.month : this.t==="schedule" ? r.employee_id+"|"+r.day : r.id;
+        for(const p of [].concat(this.payload)){
+          const ex = rows.find(r=>keyOf(r)===keyOf(p));
+          if(ex) Object.assign(ex, p); else rows.push({...p});
+        }
         save(); return { data:null, error:null };
       }
       if(this.op==="insert" && Array.isArray(this.payload)){ rows.push(...this.payload.map(r=>({...r}))); save(); return { data:null, error:null }; }
@@ -148,7 +150,7 @@
     upload: (path, blob) => new Promise(res => { const f = new FileReader(); f.onload = () => { DB.files = {}; DB.files[path] = f.result; save(); res({ data:{ path }, error:null }); }; f.readAsDataURL(blob); }),
     createSignedUrl: async path => ({ data:{ signedUrl: DB.files[path] || null }, error:null })
   }) };
-  const functions = { invoke: async () => ({ data:null, error:{ message:"Reading shifts from the image works on the live system once the API key is added. In the preview, use Set shifts for a period below." } }) };
+  const functions = { invoke: async () => ({ data:null, error:{ message:"Reading shifts from the image works on the live system once the API key is added. In the preview, use Change shifts below." } }) };
   window.supabase = { createClient: () => ({
     from: t => new Q(t),
     rpc, storage, functions,

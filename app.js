@@ -387,150 +387,74 @@ views.points = {
 };
 
 /* ---------- schedule ---------- */
-async function shrink(file){
-  const img = await createImageBitmap(file);
-  const k = Math.min(1, 2200 / Math.max(img.width, img.height));
-  const c = document.createElement("canvas"); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
-  const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
-  return new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
-}
-const toB64 = blob => new Promise(r => { const f = new FileReader(); f.onload = () => r(String(f.result).split(",")[1]); f.readAsDataURL(blob); });
-async function scheduleImage(ym){
-  const { data } = await sb.from("schedule_files").select("*").eq("month", ym).maybeSingle();
-  if(!data) return null;
-  const u = await sb.storage.from("schedules").createSignedUrl(data.path, 3600);
-  return u.data?.signedUrl || null;
-}
 function monthOptions(sel){
   const now0 = ymOf(dkey(now())), [y,m] = now0.split("-").map(Number), out = [];
   for(let i=-2;i<=2;i++){ const d = new Date(Date.UTC(y, m-1+i, 15)); out.push(d.toISOString().slice(0,7)); }
   return out.map(x=>`<option value="${x}" ${x===sel?"selected":""}>${esc(monthLabel(x))}</option>`).join("");
 }
 views.schedule = {
-  ym:null, draft:null, dirty:false,
+  ym:null,
   mount(el){
-    this.el = el; this.ym = this.ym || ymOf(dkey(now())); this.draft = null; this.dirty = false;
+    this.el = el; this.ym = this.ym || ymOf(dkey(now()));
     el.innerHTML = `
-      <div class="panel" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;justify-content:space-between">
-        <label class="f" style="min-width:200px">Month<select id="scSel">${monthOptions(this.ym)}</select></label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <label class="btn" for="scFile">Upload schedule image</label><input type="file" id="scFile" accept="image/*" hidden>
-          <button class="btn" id="scRead">Read shifts from image</button>
-        </div>
+      <div class="panel"><label class="f" style="max-width:220px">Month<select id="scSel">${monthOptions(this.ym)}</select></label></div>
+      <div class="panel"><h2>Change shifts</h2><div id="scEdit"></div>
+        <p class="hint">Date range applies to working days only. Weekends and holidays stay off. One day changes that exact day, weekends included.</p>
       </div>
-      <div class="panel"><h2>Schedule image</h2><div id="scImg"><p class="muted">Loading</p></div></div>
-      <div class="panel"><h2>Set shifts for a period</h2>
-        <div class="grid">
-          <label class="f">From<input type="date" id="pfFrom"></label>
-          <label class="f">To<input type="date" id="pfTo"></label>
-        </div>
-        <div id="pfRows" class="grid" style="margin-top:12px"></div>
-        <label class="chk" style="margin-top:12px"><input type="checkbox" id="pfWork" checked>Working days only (keep weekends and holidays off)</label>
-        <div class="actions"><button class="btn" id="pfApply">Fill the grid</button></div>
-        <p class="hint">Matches a schedule that lists each shift with its people for a date range. Fill the grid, check it, then Save schedule.</p>
-      </div>
-      <div class="panel"><div class="shift-head"><h2 style="margin:0">Shifts by day</h2><span class="small muted">Tap a day to change it</span></div>
-        <div id="scBody"><p class="muted">Loading</p></div>
-        <div class="actions"><button class="btn" id="scDiscard">Discard changes</button><button class="btn primary" id="scSave">Save schedule</button></div>
-      </div>`;
-    $("#scSel").onchange = e => { if(this.dirty && !confirm("Discard unsaved changes?")){ e.target.value = this.ym; return; } this.ym = e.target.value; this.draft = null; this.dirty = false; this.setPeriodDefaults(); this.loadImg(); loadTeam(this.ym); };
-    $("#scFile").onchange = e => this.upload(e.target.files[0]);
-    $("#scRead").onclick = () => this.read();
-    $("#scDiscard").onclick = () => { this.draft = null; this.dirty = false; this.update(); };
-    $("#scSave").onclick = e => this.save(e.target);
-    $("#pfApply").onclick = () => this.fillPeriod();
-    this.setPeriodDefaults();
-    this.loadImg(); loadTeam(this.ym);
+      <div class="panel"><h2>Month overview</h2><div id="scBody"><p class="muted">Loading</p></div></div>`;
+    $("#scSel").onchange = e => { this.ym = e.target.value; this.renderEdit(); loadTeam(this.ym); };
+    this.renderEdit(); loadTeam(this.ym);
   },
-  async loadImg(){
-    const ym = this.ym, url = await scheduleImage(ym);
-    if(tab!=="schedule" || ym!==this.ym) return;
-    this.hasImg = !!url;
-    $("#scImg").innerHTML = url ? `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="schedimg" src="${esc(url)}" alt="Schedule for ${esc(monthLabel(ym))}"></a>` : `<p class="empty">No image for ${esc(monthLabel(ym))} yet. Upload a photo or screenshot of the schedule.</p>`;
-  },
-  async upload(file){
-    if(!file) return;
-    toast("Uploading");
-    try{
-      const blob = await shrink(file); this.blob = blob;
-      const path = `${this.ym}/${Date.now()}.jpg`;
-      const up = await sb.storage.from("schedules").upload(path, blob, { contentType:"image/jpeg", upsert:true });
-      if(up.error) throw up.error;
-      const rec = await sb.from("schedule_files").upsert({ month:this.ym, path, updated_at:new Date().toISOString() });
-      if(rec.error) throw rec.error;
-      toast("Image uploaded. Use Read shifts from image, or fill the grid."); this.loadImg();
-    }catch(e){ toast(errMsg(e)); }
-    $("#scFile").value = "";
-  },
-  async read(){
-    const b = $("#scRead"); b.disabled = true; b.textContent = "Reading image";
-    try{
-      let blob = this.blob;
-      if(!blob){ const url = await scheduleImage(this.ym); if(!url) throw new Error("Upload the schedule image first."); blob = await (await fetch(url)).blob(); }
-      const { data, error } = await sb.functions.invoke("read-schedule", { body:{ month:this.ym, image: await toB64(blob), mediaType:"image/jpeg" } });
-      if(error){ let m = error.message; try{ m = (await error.context.json()).error || m; }catch{} throw new Error(m); }
-      this.ensureDraft(); let n = 0;
-      for(const [eid, days] of Object.entries(data.schedule||{})) for(const [k,v] of Object.entries(days)){ this.draft[`${eid}|${k}`] = v==="off" ? null : v; n++; }
-      this.dirty = n > 0; this.update();
-      toast(n ? `Filled ${n} day(s). Check the grid, then Save schedule.` : "Could not find shifts in the image.");
-      if(data.notes) setTimeout(()=>toast(data.notes), 3400);
-    }catch(e){ toast(errMsg(e)); }
-    b.disabled = false; b.textContent = "Read shifts from image";
-  },
-  setPeriodDefaults(){
+  renderEdit(){
     const a = `${this.ym}-01`, b = monthEnd(this.ym);
-    $("#pfFrom").value = a; $("#pfTo").value = b; $("#pfFrom").min = $("#pfTo").min = a; $("#pfFrom").max = $("#pfTo").max = b;
-    const opts = `<option value="">No change</option>${Object.keys(shifts).map(id=>`<option value="${id}">${esc(shiftLabel(id))}</option>`).join("")}<option value="off">Off</option>`;
-    $("#pfRows").innerHTML = tracked().map(e=>`<label class="f">${esc(e.name)}<select data-pf="${e.id}">${opts}</select></label>`).join("");
+    const today = dkey(now()), start = today > a && today <= b ? today : a;
+    const opts = `${Object.keys(shifts).map(id=>`<option value="${id}">${esc(shiftLabel(id))}</option>`).join("")}<option value="off">Day off</option>`;
+    $("#scEdit").innerHTML = `<div class="scroll"><table class="rows edit"><thead><tr><th>Agent</th><th>Shift</th><th>Apply to</th><th>From</th><th>To</th><th></th></tr></thead><tbody>
+      ${tracked().map(e=>`<tr data-e="${e.id}">
+        <td><b>${esc(e.name)}</b></td>
+        <td><select class="inl" data-f="shift">${opts.replace(`value="${e.shift_id}"`,`value="${e.shift_id}" selected`)}</select></td>
+        <td><select class="inl" data-f="mode"><option value="range">Date range</option><option value="day">One day</option></select></td>
+        <td><input class="inl" type="date" data-f="from" value="${start}" min="${a}" max="${b}"></td>
+        <td><input class="inl" type="date" data-f="to" value="${b}" min="${a}" max="${b}"></td>
+        <td><button class="btn primary small" data-f="apply">Apply</button></td></tr>`).join("")}
+      </tbody></table></div>`;
+    $("#scEdit").querySelectorAll("tr[data-e]").forEach(tr => {
+      const g = f => tr.querySelector(`[data-f="${f}"]`);
+      g("mode").onchange = () => { const one = g("mode").value==="day"; g("to").style.visibility = one ? "hidden" : "visible"; };
+      g("apply").onclick = () => this.apply(tr.dataset.e, g("shift").value, g("mode").value, g("from").value, g("to").value, g("apply"));
+    });
   },
-  fillPeriod(){
-    const a = $("#pfFrom").value, b = $("#pfTo").value, workOnly = $("#pfWork").checked;
-    if(!a || !b || b < a){ toast("Pick a valid date range."); return; }
-    const picks = [...document.querySelectorAll("[data-pf]")].filter(x=>x.value);
-    if(!picks.length){ toast("Choose a shift for at least one person."); return; }
-    this.ensureDraft(); let n = 0;
-    for(const sel of picks) for(const k of monthKeys(this.ym)){
-      if(k < a || k > b) continue;
-      if(workOnly && !isWorkday(k)){ this.draft[`${sel.dataset.pf}|${k}`] = null; continue; }
-      this.draft[`${sel.dataset.pf}|${k}`] = sel.value==="off" ? null : sel.value; n++;
+  async apply(eid, shift, mode, from, to, btn){
+    if(mode==="day") to = from;
+    if(!from || !to || to < from){ toast("Pick a valid date range."); return; }
+    const rows = [];
+    for(const k of monthKeys(this.ym)){
+      if(k < from || k > to) continue;
+      const v = shift==="off" ? null : shift;
+      rows.push({ employee_id:eid, day:k, shift_id: mode==="range" && !isWorkday(k) ? null : v });
     }
-    this.dirty = true; this.update(); toast(`Filled ${n} working day(s). Check the grid, then Save schedule.`);
+    btn.disabled = true;
+    const { error } = await sb.from("schedule").upsert(rows, { onConflict:"employee_id,day" });
+    btn.disabled = false;
+    if(error){ toast(errMsg(error)); return; }
+    const name = emps.find(e=>e.id===eid)?.name || "";
+    toast(mode==="day" ? `${name}: ${prettyDate(from)} saved` : `${name}: ${prettyDate(from)} to ${prettyDate(to)} saved`);
+    loadTeam(this.ym);
   },
-  ensureDraft(){ if(!this.draft){ this.draft = {}; for(const [k,v] of Object.entries(team.sched)) if(k.split("|")[1].startsWith(this.ym)) this.draft[k] = v; } },
   update(){
     if(tab!=="schedule") return;
     if(team.loading || team.ym !== this.ym){ $("#scBody").innerHTML = `<p class="muted">Loading</p>`; return; }
-    this.ensureDraft();
-    const days = monthKeys(this.ym), list = tracked(), D = this.draft;
-    const label = (e,k) => { const v = D[`${e.id}|${k}`]; if(v===null) return ["Off","off"]; if(v && shifts[v]) return [shifts[v].start.replace(":00",""),"set"]; const def = isWorkday(k) ? (shifts[e.shift_id]||{}).start : null; return [def ? def.replace(":00","") : "Off", "def"]; };
-    $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="rows sched"><thead><tr><th>Employee</th>${days.map(k=>`<th class="num">${DOW[wdOf(k)].slice(0,2)}<br>${+k.slice(8)}</th>`).join("")}</tr></thead><tbody>
-      ${list.map(e=>`<tr><td>${esc(e.name)}</td>${days.map(k=>{ const [t,c] = label(e,k); return `<td class="num"><button class="cell c-${c}" data-k="${e.id}|${k}" title="${esc(e.name)}, ${esc(prettyDate(k))}">${t}</button></td>`; }).join("")}</tr>`).join("")}
-      </tbody></table></div>
-      <p class="hint">Bold = set in the schedule. Grey = default shift on working days. Tapping cycles 08, 09, 14, Off, default. ${this.dirty ? "<b>Unsaved changes.</b>" : ""}</p>` : `<p class="empty">No tracked employees.</p>`;
-    $("#scBody").querySelectorAll(".cell").forEach(btn => btn.onclick = () => {
-      const k = btn.dataset.k, cur = D[k], order = [undefined, ...Object.keys(shifts), null];
-      const i = order.findIndex(x => x === cur); const next = order[(i+1) % order.length];
-      if(next === undefined) delete D[k]; else D[k] = next;
-      this.dirty = true; this.update();
-    });
-  },
-  async save(btn){
-    if(!this.draft){ toast("Nothing to save."); return; }
-    btn.disabled = true;
-    const a = `${this.ym}-01`, b = monthEnd(this.ym);
-    const rows = Object.entries(this.draft).filter(([k]) => k.split("|")[1] >= a && k.split("|")[1] <= b).map(([k,v]) => ({ employee_id:k.split("|")[0], day:k.split("|")[1], shift_id:v }));
-    const del = await sb.from("schedule").delete().gte("day", a).lte("day", b);
-    const ins = del.error ? del : (rows.length ? await sb.from("schedule").insert(rows) : { error:null });
-    btn.disabled = false;
-    if(ins.error){ toast(errMsg(ins.error)); return; }
-    this.dirty = false; this.draft = null; toast("Schedule saved"); loadTeam(this.ym);
+    const days = monthKeys(this.ym), list = tracked();
+    const cell = (e,k) => { const sf = shiftFor(e,k,team.sched); const t = sf.off ? "Off" : sf.sh.start.replace(":00",""); return `<td class="num small ${sf.off?"muted":""}" ${sf.planned?"":'style="opacity:.55"'}>${t}</td>`; };
+    $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="rows sched"><thead><tr><th>Agent</th>${days.map(k=>`<th class="num">${DOW[wdOf(k)].slice(0,2)}<br>${+k.slice(8)}</th>`).join("")}</tr></thead><tbody>
+      ${list.map(e=>`<tr><td>${esc(e.name)}</td>${days.map(k=>cell(e,k)).join("")}</tr>`).join("")}</tbody></table></div>
+      <p class="hint">Faded = not set yet, using the agent's default shift.</p>` : `<p class="empty">No tracked employees.</p>`;
   }
 };
 views.myschedule = {
   mount(el){
     this.el = el; const ym = ymOf(dkey(now()));
-    el.innerHTML = `<div class="panel"><h2>${esc(monthLabel(ym))} schedule</h2><div id="msImg"><p class="muted">Loading</p></div></div><div class="panel"><h2>My shifts</h2><div id="msList"></div></div>`;
-    scheduleImage(ym).then(url => { if(tab!=="myschedule") return; $("#msImg").innerHTML = url ? `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="schedimg" src="${esc(url)}" alt="Schedule"></a>` : `<p class="empty">The manager has not uploaded this month's schedule yet.</p>`; });
+    el.innerHTML = `<div class="panel"><h2>My shifts, ${esc(monthLabel(ym))}</h2><div id="msList"><p class="muted">Loading</p></div></div>`;
     (mine.ym===ym ? Promise.resolve() : loadMine(ym)).then(()=>{
       if(tab!=="myschedule") return;
       const today = dkey(now());
@@ -630,6 +554,18 @@ views.settings = {
     };
   }
 };
+
+/* ---------- night mode ---------- */
+const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t==="dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
+function paintThemeButtons(){ const on = isDark(); document.querySelectorAll("[data-theme-toggle]").forEach(b => { b.setAttribute("aria-pressed", String(on)); b.querySelector(".tl").textContent = on ? "Night mode on" : "Night mode off"; }); }
+document.querySelectorAll("[data-theme-toggle]").forEach(b => b.onclick = () => {
+  const next = isDark() ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try{ localStorage.setItem("opus-theme", next); }catch{}
+  paintThemeButtons();
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintThemeButtons);
+paintThemeButtons();
 
 /* ---------- auth ---------- */
 function showLogin(msg){
