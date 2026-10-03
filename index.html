@@ -194,7 +194,7 @@ label.btn{display:inline-block}
 .brk-time{font-size:40px;font-weight:300;font-variant-numeric:tabular-nums;line-height:1.1}
 .brk.is-over{background:var(--red-bg);border-color:var(--red)}
 .wrap{max-width:1180px}
-.layout{display:grid;grid-template-columns:minmax(0,1fr) 230px;gap:24px;align-items:start}
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:24px;align-items:start}
 .side{position:sticky;top:calc(16px + env(safe-area-inset-top,0px));background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:2px}
 .side-head{font-size:12px;color:var(--muted);padding:10px 10px 4px}
 .side-head:first-child{padding-top:4px}
@@ -297,8 +297,8 @@ footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
   </header>
   <div id="alertbar" class="alertbar" role="alert" hidden></div>
   <div class="layout">
-    <main id="main"></main>
     <nav class="side" id="tabs" role="tablist" aria-label="Sections"></nav>
+    <main id="main"></main>
   </div>
   <footer class="foot">Applied AI, Opus Support Team</footer>
 </div>
