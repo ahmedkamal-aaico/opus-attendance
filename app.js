@@ -419,15 +419,27 @@ views.schedule = {
         </div>
       </div>
       <div class="panel"><h2>Schedule image</h2><div id="scImg"><p class="muted">Loading</p></div></div>
+      <div class="panel"><h2>Set shifts for a period</h2>
+        <div class="grid">
+          <label class="f">From<input type="date" id="pfFrom"></label>
+          <label class="f">To<input type="date" id="pfTo"></label>
+        </div>
+        <div id="pfRows" class="grid" style="margin-top:12px"></div>
+        <label class="chk" style="margin-top:12px"><input type="checkbox" id="pfWork" checked>Working days only (keep weekends and holidays off)</label>
+        <div class="actions"><button class="btn" id="pfApply">Fill the grid</button></div>
+        <p class="hint">Matches a schedule that lists each shift with its people for a date range. Fill the grid, check it, then Save schedule.</p>
+      </div>
       <div class="panel"><div class="shift-head"><h2 style="margin:0">Shifts by day</h2><span class="small muted">Tap a day to change it</span></div>
         <div id="scBody"><p class="muted">Loading</p></div>
         <div class="actions"><button class="btn" id="scDiscard">Discard changes</button><button class="btn primary" id="scSave">Save schedule</button></div>
       </div>`;
-    $("#scSel").onchange = e => { if(this.dirty && !confirm("Discard unsaved changes?")){ e.target.value = this.ym; return; } this.ym = e.target.value; this.draft = null; this.dirty = false; this.loadImg(); loadTeam(this.ym); };
+    $("#scSel").onchange = e => { if(this.dirty && !confirm("Discard unsaved changes?")){ e.target.value = this.ym; return; } this.ym = e.target.value; this.draft = null; this.dirty = false; this.setPeriodDefaults(); this.loadImg(); loadTeam(this.ym); };
     $("#scFile").onchange = e => this.upload(e.target.files[0]);
     $("#scRead").onclick = () => this.read();
     $("#scDiscard").onclick = () => { this.draft = null; this.dirty = false; this.update(); };
     $("#scSave").onclick = e => this.save(e.target);
+    $("#pfApply").onclick = () => this.fillPeriod();
+    this.setPeriodDefaults();
     this.loadImg(); loadTeam(this.ym);
   },
   async loadImg(){
@@ -464,6 +476,25 @@ views.schedule = {
       if(data.notes) setTimeout(()=>toast(data.notes), 3400);
     }catch(e){ toast(errMsg(e)); }
     b.disabled = false; b.textContent = "Read shifts from image";
+  },
+  setPeriodDefaults(){
+    const a = `${this.ym}-01`, b = monthEnd(this.ym);
+    $("#pfFrom").value = a; $("#pfTo").value = b; $("#pfFrom").min = $("#pfTo").min = a; $("#pfFrom").max = $("#pfTo").max = b;
+    const opts = `<option value="">No change</option>${Object.keys(shifts).map(id=>`<option value="${id}">${esc(shiftLabel(id))}</option>`).join("")}<option value="off">Off</option>`;
+    $("#pfRows").innerHTML = tracked().map(e=>`<label class="f">${esc(e.name)}<select data-pf="${e.id}">${opts}</select></label>`).join("");
+  },
+  fillPeriod(){
+    const a = $("#pfFrom").value, b = $("#pfTo").value, workOnly = $("#pfWork").checked;
+    if(!a || !b || b < a){ toast("Pick a valid date range."); return; }
+    const picks = [...document.querySelectorAll("[data-pf]")].filter(x=>x.value);
+    if(!picks.length){ toast("Choose a shift for at least one person."); return; }
+    this.ensureDraft(); let n = 0;
+    for(const sel of picks) for(const k of monthKeys(this.ym)){
+      if(k < a || k > b) continue;
+      if(workOnly && !isWorkday(k)){ this.draft[`${sel.dataset.pf}|${k}`] = null; continue; }
+      this.draft[`${sel.dataset.pf}|${k}`] = sel.value==="off" ? null : sel.value; n++;
+    }
+    this.dirty = true; this.update(); toast(`Filled ${n} working day(s). Check the grid, then Save schedule.`);
   },
   ensureDraft(){ if(!this.draft){ this.draft = {}; for(const [k,v] of Object.entries(team.sched)) if(k.split("|")[1].startsWith(this.ym)) this.draft[k] = v; } },
   update(){

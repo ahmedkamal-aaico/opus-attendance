@@ -148,7 +148,7 @@
     upload: (path, blob) => new Promise(res => { const f = new FileReader(); f.onload = () => { DB.files = {}; DB.files[path] = f.result; save(); res({ data:{ path }, error:null }); }; f.readAsDataURL(blob); }),
     createSignedUrl: async path => ({ data:{ signedUrl: DB.files[path] || null }, error:null })
   }) };
-  const functions = { invoke: async () => ({ data:null, error:{ message:"Reading shifts from the image works on the live system once the API key is added. In the preview, fill the grid by tapping the days." } }) };
+  const functions = { invoke: async () => ({ data:null, error:{ message:"Reading shifts from the image works on the live system once the API key is added. In the preview, use Set shifts for a period below." } }) };
   window.supabase = { createClient: () => ({
     from: t => new Q(t),
     rpc, storage, functions,
