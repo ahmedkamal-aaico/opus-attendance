@@ -154,6 +154,9 @@ header.top .brand small{display:inline;border-left:1px solid var(--line);padding
 .linkbtn{background:none;border:0;color:var(--accent);cursor:pointer;padding:0;font-size:13.5px;margin-top:14px}
 .sched th,.sched td{padding:6px 5px}
 .sched td:first-child,.sched th:first-child{position:sticky;left:0;background:var(--surface);white-space:nowrap}
+.demo-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;background:var(--amber-bg);color:var(--amber);font-size:13.5px;border-bottom:1px solid var(--line)}
+.demo-bar select{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:6px;padding:4px 6px;margin-left:6px}
+.demo-bar .chk{font-size:13.5px}
 footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
 </style>
 </head>
@@ -187,7 +190,9 @@ footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
   <footer class="foot">Applied AI, Opus Support Team</footer>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<!-- LIVE MODE: replace demo.js with this line
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script> -->
+<script src="/demo.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

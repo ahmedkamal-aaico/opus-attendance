@@ -8,7 +8,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let serverOffset = 0;
 const now = () => Date.now() + serverOffset;
-let S = { tz:"Asia/Dubai", grace_min:5, early_min:10, early_per_clear:3, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", radius_m:500 };
+let S = { tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", radius_m:500 };
 const fmts = {};
 function parts(ms){
   let f = fmts[S.tz];
@@ -69,7 +69,7 @@ function dayStatus(emp, k, rec, schedMap){
     if(m <= start + S.grace_min) return { s:"remote" };
     return { s:"remotelate", by: m - start };
   }
-  if(m < start - S.early_min) return { s:"early", ahead: start - m };
+  if(m < start - S.early_min) return m >= start - S.early_max ? { s:"early", ahead: start - m } : { s:"ontime" };
   if(m <= start + S.grace_min) return { s:"ontime" };
   return { s:"late", by: m - start };
 }
@@ -196,7 +196,7 @@ function checkinView(mode){
         state = `<b>Checked in at ${tstr(rec.check_in)}.</b> ${chip(st)}`;
         buttons = `<button class="btn big" id="bOut">Check out</button>`;
       } else state = `<b>Done for today.</b> <span class="muted">${tstr(rec.check_in)} to ${tstr(rec.check_out)}</span> ${chip(st)}`;
-      const lo = Math.max(0, start - 60), hi = Math.min(1440, end);
+      const lo = Math.max(0, start - Math.max(60, S.early_max + 10)), hi = Math.min(1440, end);
       const pct = m => Math.max(0, Math.min(100, (m-lo)/(hi-lo)*100));
       const sum = summarize(me, ymOf(k), mine.att, mine.sched, mine.adj);
       this.el.innerHTML = `
@@ -208,14 +208,14 @@ function checkinView(mode){
         <section class="panel">
           <div class="shift-head"><span><b>Today's shift ${esc(sh.start)} to ${esc(sh.end)}</b></span><span class="small muted">${sf.planned ? "From this month's schedule" : "Default shift"}</span></div>
           <div class="bar" aria-label="Shift timeline">
-            ${mode==="office" ? `<div class="z e" style="left:0;width:${pct(start-S.early_min)}%"></div>` : ""}
+            ${mode==="office" ? `<div class="z e" style="left:${pct(start-S.early_max)}%;width:${pct(start-S.early_min)-pct(start-S.early_max)}%"></div>` : ""}
             <div class="z l" style="left:${pct(start+S.grace_min)}%;right:0"></div>
             ${rec && rec.mode===mode ? `<div class="mark" style="left:${pct(mins(ts(rec.check_in)))}%"></div>` : ""}
             <div class="needle" id="needle" style="left:${pct(mins(t))}%"></div>
           </div>
           <div class="ticks"><span style="left:0">${hm(lo)}</span><span style="left:${pct(start)}%">${hm(start)}</span><span style="left:100%">${hm(hi)}</span></div>
           <div class="rules">
-            ${mode==="office" ? `<span><em style="background:var(--zone-early)"></em>Before ${hm(start-S.early_min)}: early credit (${S.early_per_clear} clear 1 red)</span>` : ""}
+            ${mode==="office" ? `<span><em style="background:var(--zone-early)"></em>${hm(start-S.early_max)} to ${hm(start-S.early_min)}: early credit (${S.early_per_clear} clear 1 red)</span>` : ""}
             <span><em style="background:var(--zone-ok)"></em>Until ${hm(start+S.grace_min)}: on time</span>
             <span><em style="background:var(--zone-late)"></em>After ${hm(start+S.grace_min)}: +1 red</span>
             <span><em style="background:var(--blk-bg)"></em>No check-in: +1 black</span>
@@ -455,7 +455,8 @@ views.settings = {
       <div class="panel"><h2>Points rules</h2>
         <div class="grid">
           <label class="f">Late after (min from shift start)<input type="number" min="0" max="120" id="sGrace" value="${S.grace_min}"></label>
-          <label class="f">Early credit (min before start, office)<input type="number" min="1" max="180" id="sEarly" value="${S.early_min}"></label>
+          <label class="f">Early credit from (min before start)<input type="number" min="1" max="240" id="sEMax" value="${S.early_max}"></label>
+          <label class="f">Early credit until (min before start)<input type="number" min="1" max="180" id="sEarly" value="${S.early_min}"></label>
           <label class="f">Early credits to clear 1 red<input type="number" min="1" max="20" id="sPer" value="${S.early_per_clear}"></label>
         </div>
         <p class="small muted" style="margin:12px 0 6px">Default working days (used when the schedule has no entry)</p>
@@ -481,10 +482,11 @@ views.settings = {
     $("#sSave").onclick = async e => {
       const hol = $("#sHol").value.split(/\s+/).map(x=>x.trim()).filter(Boolean);
       if(hol.some(h=>!/^\d{4}-\d{2}-\d{2}$/.test(h))){ toast("Holidays must use YYYY-MM-DD."); return; }
+      if(+$("#sEMax").value <= +$("#sEarly").value){ toast("Early credit 'from' must be more minutes than 'until'."); return; }
       const lat = parseFloat($("#sLat").value), lng = parseFloat($("#sLng").value);
       if(isNaN(lat) || isNaN(lng)){ toast("Enter the office latitude and longitude."); return; }
       const row = {
-        grace_min: Math.max(0, +$("#sGrace").value||0), early_min: Math.max(1, +$("#sEarly").value||10), early_per_clear: Math.max(1, Math.round(+$("#sPer").value||3)),
+        grace_min: Math.max(0, +$("#sGrace").value||0), early_min: Math.max(1, +$("#sEarly").value||10), early_max: Math.max(2, +$("#sEMax").value||60), early_per_clear: Math.max(1, Math.round(+$("#sPer").value||3)),
         workdays: [...document.querySelectorAll("[data-wd]")].filter(x=>x.checked).map(x=>+x.dataset.wd), holidays: hol,
         office_lat: lat, office_lng: lng, radius_m: Math.max(50, +$("#sRad").value||500),
         alerts_enabled: $("#sAl").checked, alert_from: $("#sFrom").value.trim() || null
