@@ -266,6 +266,21 @@ label.btn{display:inline-block}
 .item.is-over{color:var(--red)}
 @media (max-width:640px){header.top{flex-wrap:wrap}header.top .brand small{display:none}.who{flex-wrap:wrap;justify-content:flex-end;gap:6px}}
 @media (max-width:420px){.cal-pill{font-size:9.5px;padding:2px 3px}.cal-n{font-size:12px}}
+.streak .sk-row{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+.sk-n{font-size:34px;font-weight:300;line-height:1.1;font-variant-numeric:tabular-nums}
+.sk-n small{font-size:14px;color:var(--muted);margin-left:4px}
+.sk-badge{font-size:13px;font-weight:600;padding:5px 12px;border-radius:999px;background:var(--bg);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.streak.done .sk-badge{background:var(--green);border-color:var(--green);color:#fff}
+.sk-bar{height:8px;border-radius:999px;background:var(--bg);margin-top:12px;overflow:hidden;border:1px solid var(--line)}
+.sk-bar i{display:block;height:100%;background:var(--green);border-radius:999px}
+.ocell{border:0;background:none;font:inherit;font-size:12.5px;padding:3px 2px;min-width:30px;border-radius:5px;cursor:pointer;color:var(--ink);font-variant-numeric:tabular-nums}
+.ocell:hover{background:var(--bg);outline:1px solid var(--line)}
+.ocell.off{color:var(--muted)}
+.ocell.faded{opacity:.55}
+.ocell.exc{background:var(--blk-bg);color:var(--accent);font-weight:600}
+.cal-exc{font-size:12px;font-weight:600;color:var(--accent);background:var(--bg);border:1px dashed var(--accent);border-radius:7px;padding:4px 6px}
+.nowrap{white-space:nowrap}
+.audit td{vertical-align:top}
 footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
 </style>
 </head>
@@ -316,6 +331,15 @@ footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
     </button>
   </div>
   <p class="err" id="ciErr" role="alert"></p>
+</dialog>
+<dialog id="exDlg" class="dlg" aria-labelledby="exTitle">
+  <form method="dialog" class="dlg-x"><button class="btn small" aria-label="Close">Close</button></form>
+  <h2 id="exTitle">Excuse</h2>
+  <p class="small muted" id="exWhen" style="margin:-8px 0 14px"></p>
+  <label class="f">Reason (optional)<input id="exReason" maxlength="120" placeholder="Example: doctor appointment, approved leave"></label>
+  <p class="hint">Excused days get no late, absent or black points, and do not break the on-time streak.</p>
+  <div class="actions"><button class="btn no" id="exRemove" hidden>Remove excuse</button><button class="btn primary" id="exSave">Mark excused</button></div>
+  <p class="err" id="exErr" role="alert"></p>
 </dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <!-- LIVE MODE: replace demo.js with this line

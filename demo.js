@@ -1,7 +1,7 @@
 "use strict";
 /* Preview mode: replaces Supabase with an in-browser sample database. Nothing is saved to the server. */
 (function(){
-  const KEY = "opus-demo-db-v8", AS = "opus-demo-as", SIM = "opus-demo-sim";
+  const KEY = "opus-demo-db-v9", AS = "opus-demo-as", SIM = "opus-demo-sim";
   const OFFICE = { lat:24.4290032, lng:54.4632417 };
   const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"});
   const dk = ms => fmt.format(ms);
@@ -61,7 +61,13 @@
     breaks.push({ id:2, employee_id:"e3", day:today, kind:"short", started_at:nowIso(33), ended_at:null });
     breaks.push({ id:3, employee_id:"e1", day:today, kind:"short", started_at:nowIso(100), ended_at:nowIso(86) });
     const adjustments = [{ id:1, employee_id:"e3", month:prev, type:"red", delta:-1, reason:"System outage, late check-in excused", created_by:"m1", created_at:new Date().toISOString() }];
-    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, breaks, schedule_files:[], files:{}, _seq:10 };
+    const excused = [{ employee_id:"e3", day: days.find(k=>k.slice(0,7)===prev && new Date(k+"T12:00:00Z").getUTCDay()===3) || days[0], reason:"Doctor appointment", created_at:new Date().toISOString() }];
+    const audit_log = [
+      { id:1, at:new Date(Date.now()-86400000*2).toISOString(), actor_name:"Manager (you)", actor_email:"manager@demo.aaico.com", action:"Changed schedule", target:"Minu Boban", details:"01 Oct to 16 Oct 2026: 14:00 to 23:00 (working days)" },
+      { id:2, at:new Date(Date.now()-86400000).toISOString(), actor_name:"Manager (you)", actor_email:"manager@demo.aaico.com", action:"Adjusted points", target:"Moataz Noamani", details:prev+": -1 red. Reason: System outage, late check-in excused" },
+      { id:3, at:new Date(Date.now()-3600000*5).toISOString(), actor_name:"System", actor_email:null, action:"Auto check-out", target:"Asem Elsebaey", details:"yesterday at 18:01" }
+    ];
+    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, breaks, excused, audit_log, schedule_files:[], files:{}, _seq:10 };
   }
   let DB;
   try{ DB = JSON.parse(sessionStorage.getItem(KEY)); }catch{}
@@ -73,11 +79,13 @@
   const visible = (t, rows) => {
     const m = meRow(); if(m.is_admin) return rows;
     if(t==="employees") return rows.filter(r=>r.id===m.id);
-    if(["attendance","schedule","adjustments"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
-    if(t==="alerts_sent") return [];
+    if(["attendance","schedule","adjustments","excused"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
+    if(t==="alerts_sent" || t==="audit_log") return [];
     return rows;
   };
 
+  const nameOf = id => (DB.employees.find(e=>e.id===id)||{}).name || "";
+  function audit(action, target, details){ const m = meRow(); DB.audit_log.unshift({ id:DB._seq++, at:new Date().toISOString(), actor_name:m.name, actor_email:m.email, action, target, details }); }
   class Q {
     constructor(t){ this.t=t; this.f=[]; this.op="select"; this.ord=null; this.one=null; this.payload=null; }
     select(){ return this; }
@@ -85,6 +93,7 @@
     gte(c,v){ this.f.push(r=>r[c]>=v); return this; }
     lte(c,v){ this.f.push(r=>r[c]<=v); return this; }
     order(c,o){ this.ord=[c, !(o && o.ascending===false)]; return this; }
+    limit(n){ this.lim=n; return this; }
     maybeSingle(){ this.one="maybe"; return this; }
     single(){ this.one="single"; return this; }
     insert(p){ this.op="insert"; this.payload=p; return this; }
@@ -99,6 +108,7 @@
       if(this.op==="select"){
         let out = visible(this.t, rows.filter(match)).map(r=>({...r}));
         if(this.ord){ const [c,asc] = this.ord; out.sort((a,b)=> (a[c]>b[c]?1:a[c]<b[c]?-1:0) * (asc?1:-1)); }
+        if(this.lim) out = out.slice(0, this.lim);
         return { data: this.one ? (out[0]||null) : out, error:null };
       }
       if(this.op==="upsert"){
@@ -113,7 +123,8 @@
       if(this.op==="insert"){
         const r = { ...this.payload };
         if(this.t==="employees"){ r.id = "e"+(DB._seq++); r.email = r.email||null; r.active = r.active ?? true; r.is_admin = r.is_admin ?? false; r.since = r.since ?? null; }
-        if(this.t==="adjustments"){ r.id = DB._seq++; r.created_at = new Date().toISOString(); }
+        if(this.t==="adjustments"){ r.id = DB._seq++; r.created_at = new Date().toISOString(); audit("Adjusted points", nameOf(r.employee_id), `${r.month}: ${r.delta>0?"+1":"-1"} ${r.type}. Reason: ${r.reason}`); }
+        if(this.t==="employees") audit("Added employee", r.name, "");
         rows.push(r); save(); return { data:{...r}, error:null };
       }
       if(this.op==="update"){
@@ -121,9 +132,13 @@
           const clash = rows.find(r => !match(r) && (r.email||"").toLowerCase()===this.payload.email.toLowerCase());
           if(clash){ const e = new Error("duplicate"); e.code="23505"; throw e; }
         }
-        rows.filter(match).forEach(r=>Object.assign(r,this.payload)); save(); return { data:null, error:null };
+        rows.filter(match).forEach(r=>{
+          const ch = Object.entries(this.payload).filter(([k,v]) => JSON.stringify(r[k]) !== JSON.stringify(v)).map(([k,v]) => `${k}: ${r[k] ?? "none"} to ${v ?? "none"}`);
+          if(ch.length) audit(this.t==="settings" ? "Changed settings" : "Edited employee", this.t==="settings" ? "" : r.name, ch.join("; "));
+          Object.assign(r,this.payload);
+        }); save(); return { data:null, error:null };
       }
-      if(this.op==="delete"){ DB[this.t] = rows.filter(r=>!match(r)); save(); return { data:null, error:null }; }
+      if(this.op==="delete"){ if(this.t==="adjustments") rows.filter(match).forEach(r=>audit("Deleted adjustment", nameOf(r.employee_id), `${r.month}: ${r.delta>0?"+1":"-1"} ${r.type}. Reason was: ${r.reason}`)); DB[this.t] = rows.filter(r=>!match(r)); save(); return { data:null, error:null }; }
     }
   }
   const dist = (a,b,c,d) => { const R=6371000, r=x=>x*Math.PI/180; const h=Math.sin(r(c-a)/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(r(d-b)/2)**2; return 2*R*Math.asin(Math.sqrt(h)); };
@@ -142,6 +157,23 @@
       }
       const r = { employee_id:m.id, day:today, mode:a.p_mode, check_in:new Date().toISOString(), check_out:null, in_dist:d, out_dist:null };
       DB.attendance.push(r); save(); return { data:{...r}, error:null };
+    }
+    if(name==="set_schedule"){
+      if(!m.is_admin) return fail("Only managers can change the schedule.");
+      let t = Date.parse(a.p_from+"T12:00:00Z"); const e = Date.parse(a.p_to+"T12:00:00Z");
+      while(t <= e){ const k = new Date(t).toISOString().slice(0,10), wd = new Date(t).getUTCDay();
+        const v = a.p_shift==="off" ? null : (a.p_working_only && !S.workdays.includes(wd)) ? null : a.p_shift;
+        const ex = DB.schedule.find(r=>r.employee_id===a.p_employee && r.day===k); if(ex) ex.shift_id = v; else DB.schedule.push({ employee_id:a.p_employee, day:k, shift_id:v }); t += 864e5; }
+      const sh = DB.shifts.find(x=>x.id===a.p_shift);
+      audit("Changed schedule", nameOf(a.p_employee), `${a.p_from===a.p_to ? a.p_from : a.p_from+" to "+a.p_to}: ${sh ? sh.start_time.slice(0,5)+" to "+sh.end_time.slice(0,5) : "Day off"}`);
+      save(); return { data:1, error:null };
+    }
+    if(name==="set_excused"){
+      if(!m.is_admin) return fail("Only managers can excuse days.");
+      DB.excused = DB.excused.filter(r=>!(r.employee_id===a.p_employee && r.day===a.p_day));
+      if(a.p_excused){ DB.excused.push({ employee_id:a.p_employee, day:a.p_day, reason:a.p_reason||null }); audit("Excused day", nameOf(a.p_employee), a.p_day + (a.p_reason ? ": "+a.p_reason : "")); }
+      else audit("Removed excused day", nameOf(a.p_employee), a.p_day);
+      save(); return { data:null, error:null };
     }
     if(name==="team_status"){
       const tr = DB.employees.filter(e=>e.active && e.tracked).sort((a,b)=>a.name.localeCompare(b.name)).map(e => {
