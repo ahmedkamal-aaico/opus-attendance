@@ -177,6 +177,22 @@ label.btn{display:inline-block}
 .edit td,.edit th{padding:6px 4px}
 .edit .inl{padding:6px 6px;font-size:13.5px}
 .edit input[type=date]{width:132px}
+.alertbar{background:var(--red-bg);color:var(--red);border:1px solid var(--red);border-radius:8px;padding:10px 14px;margin:0 0 12px;font-weight:500}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.pcard{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.pcard.st-available{border-left-color:var(--green)}
+.pcard.st-break{border-left-color:var(--amber)}
+.pcard.st-over{border-left-color:var(--red);background:var(--red-bg)}
+.pc-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pill{font-size:12px;padding:2px 8px;border-radius:999px;white-space:nowrap;font-weight:500}
+.p-available{background:var(--green-bg);color:var(--green)}
+.p-break{background:var(--amber-bg);color:var(--amber)}
+.p-over{background:var(--red);color:#fff}
+.p-notin,.p-done,.p-off{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.pc-timer{font-variant-numeric:tabular-nums;font-weight:500}
+.is-over .pc-timer,.is-over .brk-time{color:var(--red)}
+.brk-time{font-size:40px;font-weight:300;font-variant-numeric:tabular-nums;line-height:1.1}
+.brk.is-over{background:var(--red-bg);border-color:var(--red)}
 footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
 </style>
 </head>
@@ -206,6 +222,7 @@ footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
     <div class="brand"><img class="logo" src="/logo.png" alt="Applied AI"><small>Opus Support Attendance</small></div>
     <div class="who"><span id="who"></span><button class="btn small theme-btn" data-theme-toggle><span class="sw"></span><span class="tl">Night mode</span></button><button class="btn small" id="signout">Sign out</button></div>
   </header>
+  <div id="alertbar" class="alertbar" role="alert" hidden></div>
   <nav class="tabs" id="tabs" role="tablist"></nav>
   <main id="main"></main>
   <footer class="foot">Applied AI, Opus Support Team</footer>

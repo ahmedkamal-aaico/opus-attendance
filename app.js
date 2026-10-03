@@ -8,7 +8,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let serverOffset = 0;
 const now = () => Date.now() + serverOffset;
-let S = { tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", radius_m:500 };
+let S = { tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, min_available:1, break_alert_after_min:15, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", radius_m:500 };
 const fmts = {};
 function parts(ms){
   let f = fmts[S.tz];
@@ -75,33 +75,39 @@ function dayStatus(emp, k, rec, schedMap){
 }
 function summarize(emp, ym, att, schedMap, adj){
   const today = dkey(now());
-  const c = { early:0, ontime:0, late:0, absent:0, office:0, remote:0, red:0, black:0, rows:[] };
+  const c = { early:0, ontime:0, late:0, allowed:0, absent:0, office:0, remote:0, red:0, black:0, rows:[] };
   for(const k of monthKeys(ym)){
     if(k > today) break;
     const st = dayStatus(emp, k, att[`${emp.id}|${k}`], schedMap);
     if(st.s==="na") continue;
-    c.rows.push({ k, ...st });
-    if(st.s==="early"){ c.early++; c.office++; }
+    if(st.s==="late" || st.s==="remotelate"){
+      c.late++;
+      if(c.late <= S.late_allowance){ st.allowed = c.late; c.allowed++; } else c.red++;
+      if(st.s==="late") c.office++; else c.remote++;
+    }
+    else if(st.s==="early"){ c.early++; c.office++; }
     else if(st.s==="ontime"){ c.ontime++; c.office++; }
-    else if(st.s==="late"){ c.late++; c.red++; c.office++; }
     else if(st.s==="remote") c.remote++;
-    else if(st.s==="remotelate"){ c.late++; c.red++; c.remote++; }
     else if(st.s==="absent"){ c.absent++; c.black++; }
+    c.rows.push({ k, ...st });
   }
   for(const a of adj) if(a.employee_id===emp.id && a.month===ym){ if(a.type==="red") c.red += a.delta; else if(a.type==="black") c.black += a.delta; }
   c.red = Math.max(0, c.red); c.black = Math.max(0, c.black);
-  const per = Math.max(1, S.early_per_clear||3);
-  c.cleared = Math.min(c.red, Math.floor(c.early / per));
+  const per = Math.max(1, S.early_per_clear||3), cap = Math.max(0, S.max_clears ?? 2);
+  c.cleared = Math.min(c.red, Math.floor(c.early / per), cap);
   c.red -= c.cleared;
-  c.toNext = c.red > 0 ? per - (c.early - c.cleared*per) : 0;
+  c.clearsLeft = cap - c.cleared;
+  c.toNext = c.red > 0 && c.clearsLeft > 0 ? per - (c.early - c.cleared*per) : 0;
+  c.lateLeft = Math.max(0, S.late_allowance - c.late);
   c.penalties = c.red + c.black;
   return c;
 }
+const dayFrom = (sum, k, fallback) => sum.rows.find(r => r.k === k) || fallback;
 function chip(st){
   const map = {
     early:[`Early ${st.ahead||""} min, +1 credit`,"early"], ontime:["On time","ontime"],
-    late:[`Late ${st.by||""} min, +1 red`,"late"], absent:["Absent, +1 black","absent"],
-    remote:["Remote, on time","remote"], remotelate:[`Remote, late ${st.by||""} min, +1 red`,"late"],
+    late: st.allowed ? [`Late ${st.by||""} min, allowed (${st.allowed} of ${S.late_allowance})`,"pending"] : [`Late ${st.by||""} min, +1 red`,"late"], absent:["Absent, +1 black","absent"],
+    remote:["Remote, on time","remote"], remotelate: st.allowed ? [`Remote, late ${st.by||""} min, allowed (${st.allowed} of ${S.late_allowance})`,"pending"] : [`Remote, late ${st.by||""} min, +1 red`,"late"],
     off:["Day off","off"], pending:["Not checked in","pending"], na:["Not started","na"], future:["",""]
   };
   const [t,c] = map[st.s] || [st.s,"na"];
@@ -158,8 +164,8 @@ let tab = null;
 const views = {};
 function tabsFor(){
   const t = [];
-  if(me?.tracked) t.push(["office","Office"],["remote","Remote"],["mine","My points"],["myschedule","My schedule"]);
-  if(me?.is_admin){ if(t.length) t.push(["sep"]); t.push(["team","Team today"],["points","Points report"],["schedule","Schedule"],["people","Employees"],["settings","Settings"]); }
+  if(me?.tracked) t.push(["office","Office"],["remote","Remote"],["live","Live board"],["mine","My points"],["myschedule","My schedule"]);
+  if(me?.is_admin){ if(t.length) t.push(["sep"]); else t.push(["live","Live board"]); t.push(["team","Attendance today"],["points","Points report"],["schedule","Schedule"],["people","Employees"],["settings","Settings"]); }
   return t;
 }
 function renderTabs(){
@@ -171,6 +177,101 @@ function renderTabs(){
 function setTab(t){ tab = t; renderTabs(); views[tab].mount($("#main")); }
 function update(){ const v = views[tab]; if(v && v.update) v.update(); }
 
+/* ---------- live board & breaks ---------- */
+let live = [], liveLoaded = false;
+const fmtClock = sec => { const a = Math.abs(Math.round(sec)); return `${Math.floor(a/60)}m ${String(a%60).padStart(2,"0")}s`; };
+function liveState(r){
+  if(!r.check_in) return r.is_off ? { s:"off" } : { s:"notin" };
+  if(r.check_out) return { s:"done" };
+  if(r.break_kind){
+    const el = (now() - Date.parse(r.break_started)) / 1000, allowed = (r.break_allowed||15) * 60;
+    const over = el > allowed, alert = el > allowed + S.break_alert_after_min*60;
+    return { s: over ? "over" : "break", el, allowed, alert };
+  }
+  return { s:"available" };
+}
+async function refreshLive(){
+  if(!me) return;
+  const { data, error } = await sb.rpc("team_status");
+  if(error) return;
+  live = data || []; liveLoaded = true;
+  if(["live","office","remote"].includes(tab)) update();
+  paintAlerts();
+}
+function breaksLeft(r){ return { short: Math.max(0, S.break_short_count - (r?.short_used||0)), long: Math.max(0, S.break_long_count - (r?.long_used||0)) }; }
+function paintAlerts(){
+  const bar = $("#alertbar"); if(!bar) return;
+  const msgs = [];
+  const mineRow = live.find(r => r.employee_id === me?.id);
+  if(mineRow){ const st = liveState(mineRow); if(st.s==="over") msgs.push(`You are ${Math.floor((st.el-st.allowed)/60)} min over your break. End it from the ${mineRow.mode==="remote"?"Remote":"Office"} tab.`); }
+  if(me?.is_admin) for(const r of live){ if(r.employee_id===me.id) continue; const st = liveState(r); if(st.alert) msgs.push(`${r.name} is ${Math.floor((st.el-st.allowed)/60)} min over break.`); }
+  bar.hidden = !msgs.length; bar.innerHTML = msgs.map(m=>`<div>${esc(m)}</div>`).join("");
+  document.title = msgs.length ? "Over break | Opus Support Attendance" : "Opus Support Attendance | Applied AI";
+}
+function tickBreaks(){
+  document.querySelectorAll("[data-bstart]").forEach(el => {
+    const el2 = (now() - Number(el.dataset.bstart)) / 1000, allowed = Number(el.dataset.ballow) * 60;
+    const over = el2 > allowed;
+    el.textContent = over ? `${fmtClock(el2-allowed)} over` : `${fmtClock(allowed-el2)} left`;
+    el.closest("[data-bwrap]")?.classList.toggle("is-over", over);
+  });
+  paintAlerts();
+}
+const STATUS = { available:["Available","available"], break:["On break","break"], over:["Over break","over"], notin:["Not checked in","notin"], done:["Checked out","done"], off:["Day off","off"] };
+views.live = {
+  mount(el){ this.el = el; el.innerHTML = `<div id="lvBody"><p class="muted">Loading</p></div>`; refreshLive(); this.update(); },
+  update(){
+    if(tab!=="live" || !liveLoaded) return;
+    const rows = live.map(r => ({ r, st: liveState(r) }));
+    const n = s => rows.filter(x=>x.st.s===s).length;
+    const order = { over:0, break:1, available:2, notin:3, done:4, off:5 };
+    rows.sort((a,b)=>order[a.st.s]-order[b.st.s] || a.r.name.localeCompare(b.r.name));
+    $("#lvBody").innerHTML = `
+      <div class="panel"><div class="tally">
+        <div class="t-g"><div class="n">${n("available")}</div><div class="l">Available</div></div>
+        <div class="t-a"><div class="n">${n("break")}</div><div class="l muted">On break</div></div>
+        <div class="t-r"><div class="n">${n("over")}</div><div class="l">Over break</div></div>
+        <div class="t-b"><div class="n">${n("notin")}</div><div class="l">Not checked in</div></div>
+      </div><p class="hint">Updates on its own every 15 seconds. At least ${S.min_available} teammate(s) must stay available, so a break can only start when someone else is free.</p></div>
+      <div class="board">${rows.map(({r,st}) => { const [t,c] = STATUS[st.s]; const left = breaksLeft(r);
+        return `<div class="pcard st-${c}" ${st.s==="break"||st.s==="over" ? "data-bwrap" : ""}>
+          <div class="pc-top"><b>${esc(r.name)}${r.employee_id===me.id?" <span class='muted small'>(you)</span>":""}</b><span class="pill p-${c}">${t}</span></div>
+          <div class="small muted">${r.is_off && !r.check_in ? "No shift today" : `Shift ${short(r.shift_start)} to ${short(r.shift_end)}`}${r.check_in && !r.check_out ? `, ${r.mode==="remote"?"remote":"office"} since ${tstr(r.check_in)}` : ""}</div>
+          ${st.s==="break"||st.s==="over" ? `<div class="pc-timer">${r.break_allowed}-min break, <span data-bstart="${Date.parse(r.break_started)}" data-ballow="${r.break_allowed}"></span></div>` : ""}
+          ${r.check_in && !r.check_out ? `<div class="small muted">Breaks left: ${left.short} × ${S.break_short_min} min, ${left.long} × ${S.break_long_min} min</div>` : ""}
+        </div>`; }).join("")}</div>`;
+    tickBreaks();
+  }
+};
+function breakPanel(rec, mode){
+  if(!rec || rec.check_out || rec.mode !== mode) return "";
+  if(!liveLoaded) return `<section class="panel"><h2>Breaks</h2><p class="muted">Loading</p></section>`;
+  const mineRow = live.find(r => r.employee_id === me.id);
+  const st = mineRow ? liveState(mineRow) : { s:"available" };
+  if(st.s==="break" || st.s==="over"){
+    return `<section class="panel brk" data-bwrap><div class="punch"><div><div class="small muted">On a ${mineRow.break_allowed}-min break since ${tstr(mineRow.break_started)}</div>
+      <div class="brk-time" data-bstart="${Date.parse(mineRow.break_started)}" data-ballow="${mineRow.break_allowed}"></div></div>
+      <button class="btn primary big" id="bEnd">End break</button></div></section>`;
+  }
+  const left = breaksLeft(mineRow);
+  const others = live.filter(r => r.employee_id !== me.id && liveState(r).s === "available").length;
+  const blocked = others < S.min_available;
+  const away = live.filter(r => ["break","over"].includes(liveState(r).s)).map(r => { const x = liveState(r); return `${r.name} (${x.s==="over" ? "over" : Math.ceil((x.allowed-x.el)/60)+" min left"})`; });
+  return `<section class="panel"><h2>Breaks</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="bShort" ${!left.short||blocked?"disabled":""}>Start ${S.break_short_min}-min break (${left.short} left)</button>
+      <button class="btn" id="bLong" ${!left.long||blocked?"disabled":""}>Start ${S.break_long_min}-min break (${left.long} left)</button>
+    </div>
+    <p class="hint">${blocked ? `Wait until a teammate is free. At least ${S.min_available} must stay available.${away.length ? " On break now: "+esc(away.join(", "))+"." : ""}` : `Take them in any order during your shift. ${others} teammate(s) available now.`}</p>
+  </section>`;
+}
+async function breakAction(fn, args, btn){
+  btn.disabled = true;
+  const { error } = await sb.rpc(fn, args);
+  if(error){ toast(errMsg(error)); btn.disabled = false; return; }
+  toast(fn==="start_break" ? "Break started" : "Welcome back"); await refreshLive();
+}
+
 /* ---------- check-in ---------- */
 function checkinView(mode){
   return {
@@ -181,7 +282,8 @@ function checkinView(mode){
       if(mine.ym !== ymOf(k)){ loadMine(ymOf(k)).then(()=>this.update()); }
       const sf = shiftFor(me, k, mine.sched), sh = sf.sh, start = pHM(sh.start), end = pHM(sh.end);
       const rec = mine.att[`${me.id}|${k}`];
-      const st = dayStatus(me, k, rec, mine.sched);
+      const sum = summarize(me, ymOf(k), mine.att, mine.sched, mine.adj);
+      const st = dayFrom(sum, k, dayStatus(me, k, rec, mine.sched));
       const other = mode==="office" ? "Remote" : "Office";
       let state, buttons = "";
       if(sf.off) state = `<b>Day off.</b> <span class="muted">No shift scheduled today.</span>`;
@@ -198,7 +300,6 @@ function checkinView(mode){
       } else state = `<b>Done for today.</b> <span class="muted">${tstr(rec.check_in)} to ${tstr(rec.check_out)}</span> ${chip(st)}`;
       const lo = Math.max(0, start - Math.max(60, S.early_max + 10)), hi = Math.min(1440, end);
       const pct = m => Math.max(0, Math.min(100, (m-lo)/(hi-lo)*100));
-      const sum = summarize(me, ymOf(k), mine.att, mine.sched, mine.adj);
       this.el.innerHTML = `
         <section class="clock">
           <div class="date">${esc(longDate(k))}, UAE time</div>
@@ -217,11 +318,12 @@ function checkinView(mode){
           <div class="rules">
             ${mode==="office" ? `<span><em style="background:var(--zone-early)"></em>${hm(start-S.early_max)} to ${hm(start-S.early_min)}: early credit (${S.early_per_clear} clear 1 red)</span>` : ""}
             <span><em style="background:var(--zone-ok)"></em>Until ${hm(start+S.grace_min)}: on time</span>
-            <span><em style="background:var(--zone-late)"></em>After ${hm(start+S.grace_min)}: +1 red</span>
+            <span><em style="background:var(--zone-late)"></em>After ${hm(start+S.grace_min)}: late (${S.late_allowance} allowed per month, then +1 red)</span>
             <span><em style="background:var(--blk-bg)"></em>No check-in: +1 black</span>
           </div>
         </section>
         <section class="panel punch"><div class="state">${state}</div><div>${buttons}</div></section>
+        ${breakPanel(rec, mode)}
         <section class="panel">
           <h2>${esc(monthLabel(ymOf(k)))} so far</h2>
           <div class="tally">
@@ -230,8 +332,13 @@ function checkinView(mode){
             <div class="t-b"><div class="n">${sum.black}</div><div class="l">Black</div></div>
             <div class="t-a"><div class="n">${sum.penalties}</div><div class="l muted">Total penalties</div></div>
           </div>
+          <p class="hint">${sum.lateLeft} allowed late day(s) left this month. ${sum.clearsLeft} early-credit clear(s) left this month. Everything resets on the 1st.</p>
         </section>`;
-      this.lo = lo; this.hi = hi; tick();
+      this.lo = lo; this.hi = hi; tick(); tickBreaks();
+      const bs = $("#bShort"), bl = $("#bLong"), be = $("#bEnd");
+      if(bs) bs.onclick = () => breakAction("start_break", { p_kind:"short" }, bs);
+      if(bl) bl.onclick = () => breakAction("start_break", { p_kind:"long" }, bl);
+      if(be) be.onclick = () => breakAction("end_break", {}, be);
       const bi = $("#bIn"), bo = $("#bOut");
       if(bi) bi.onclick = () => punch("in", mode, bi);
       if(bo) bo.onclick = () => punch("out", mode, bo);
@@ -247,7 +354,7 @@ function tick(){
   const v = views[tab], n = $("#needle");
   if(n && v && v.hi) n.style.left = Math.max(0,Math.min(100,(mins(now())-v.lo)/(v.hi-v.lo)*100))+"%";
 }
-setInterval(tick, 1000);
+setInterval(() => { tick(); tickBreaks(); }, 1000);
 
 async function punch(kind, mode, btn){
   btn.disabled = true; const label = btn.textContent; btn.textContent = mode==="office" ? "Checking location" : "Saving";
@@ -258,7 +365,7 @@ async function punch(kind, mode, btn){
       ? await sb.rpc("check_in", { p_mode:mode, p_lat:lat, p_lng:lng })
       : await sb.rpc("check_out", { p_lat:lat, p_lng:lng });
     if(error) throw error;
-    mine.att[`${me.id}|${data.day}`] = data;
+    mine.att[`${me.id}|${data.day}`] = data; refreshLive();
     toast(kind==="in" ? `Checked in at ${tstr(data.check_in)}` : `Checked out at ${tstr(data.check_out)}`);
     update();
   }catch(e){ toast(errMsg(e)); btn.disabled = false; btn.textContent = label; }
@@ -283,7 +390,7 @@ views.mine = {
         <div class="t-r"><div class="n">${s.red}</div><div class="l">Red</div></div>
         <div class="t-b"><div class="n">${s.black}</div><div class="l">Black</div></div>
         <div class="t-a"><div class="n">${s.penalties}</div><div class="l muted">Total penalties</div></div>
-      </div><p class="hint">${s.office} office day(s), ${s.remote} remote day(s). ${s.cleared ? `${s.cleared} red point(s) cleared by early credits. ` : ""}${s.red ? `${s.toNext} more early office day(s) clears the next red.` : ""}</p></div>
+      </div><p class="hint">${s.office} office day(s), ${s.remote} remote day(s). ${s.allowed ? `${s.allowed} allowed late day(s) used. ` : ""}${s.cleared ? `${s.cleared} red point(s) cleared by early credits. ` : ""}${s.toNext ? `${s.toNext} more early office day(s) clears the next red.` : s.red && !s.clearsLeft ? "No early-credit clears left this month." : ""}</p></div>
       ${mine.adj.length ? `<div class="panel"><h2>Manager adjustments</h2>${mine.adj.map(a=>`<div class="item"><span>${a.delta>0?"+1":"-1"} ${esc(a.type)}</span><span class="muted small">${esc(a.reason)}</span></div>`).join("")}</div>` : ""}
       <div class="panel scroll">${rows.length ? `<table class="rows"><thead><tr><th>Date</th><th>Where</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>
         ${rows.map(r=>{ const d = mine.att[`${me.id}|${r.k}`]; return `<tr><td>${esc(prettyDate(r.k))}</td><td class="small">${d ? (d.mode==="remote"?"Remote":"Office") : ""}</td><td>${tstr(d?.check_in)}</td><td>${tstr(d?.check_out)}</td><td>${chip(r)}</td></tr>`; }).join("")}
@@ -306,7 +413,8 @@ views.team = {
     if(!list.length){ $("#tBody").innerHTML = `<div class="panel"><p class="empty">No tracked employees. Add them in Employees.</p></div>`; return; }
     let off=0, rem=0, late=0, abs=0;
     const rows = list.map(e => {
-      const rec = team.att[`${e.id}|${k}`], st = dayStatus(e, k, rec, team.sched), sh = shiftFor(e, k, team.sched);
+      const rec = team.att[`${e.id}|${k}`], sh = shiftFor(e, k, team.sched);
+      const st = dayFrom(summarize(e, ymOf(k), team.att, team.sched, team.adj), k, dayStatus(e, k, rec, team.sched));
       if(rec?.mode==="remote") rem++; else if(rec) off++;
       if(st.s==="late"||st.s==="remotelate") late++; if(st.s==="absent") abs++;
       const flags = [];
@@ -366,9 +474,9 @@ views.points = {
     if(tab!=="points") return;
     if(team.loading || team.ym !== this.ym){ $("#rBody").innerHTML = `<p class="muted">Loading</p>`; return; }
     this.rows = tracked().map(e => ({ e, s: summarize(e, this.ym, team.att, team.sched, team.adj) }));
-    $("#rBody").innerHTML = this.rows.length ? `<div class="panel scroll"><table class="rows"><thead><tr><th>Employee</th><th class="num">Office</th><th class="num">Remote</th><th class="num">Early</th><th class="num">Late</th><th class="num">Absent</th><th class="num">Cleared</th><th class="num">Red</th><th class="num">Black</th><th class="num">Penalties</th></tr></thead><tbody>
-      ${this.rows.map(({e,s})=>`<tr><td>${esc(e.name)}</td><td class="num">${s.office}</td><td class="num">${s.remote}</td><td class="num">${s.early}</td><td class="num">${s.late}</td><td class="num">${s.absent}</td><td class="num">${s.cleared}</td><td class="num">${s.red}</td><td class="num">${s.black}</td><td class="num"><b>${s.penalties}</b></td></tr>`).join("")}
-      </tbody></table><p class="hint">Every ${S.early_per_clear} early office days clear 1 red point. Red and black include manager adjustments.</p></div>` : `<div class="panel"><p class="empty">No tracked employees.</p></div>`;
+    $("#rBody").innerHTML = this.rows.length ? `<div class="panel scroll"><table class="rows"><thead><tr><th>Employee</th><th class="num">Office</th><th class="num">Remote</th><th class="num">Early</th><th class="num">Late</th><th class="num">Allowed</th><th class="num">Absent</th><th class="num">Cleared</th><th class="num">Red</th><th class="num">Black</th><th class="num">Penalties</th></tr></thead><tbody>
+      ${this.rows.map(({e,s})=>`<tr><td>${esc(e.name)}</td><td class="num">${s.office}</td><td class="num">${s.remote}</td><td class="num">${s.early}</td><td class="num">${s.late}</td><td class="num">${s.allowed}</td><td class="num">${s.absent}</td><td class="num">${s.cleared}</td><td class="num">${s.red}</td><td class="num">${s.black}</td><td class="num"><b>${s.penalties}</b></td></tr>`).join("")}
+      </tbody></table><p class="hint">The first ${S.late_allowance} late days each month are allowed with no red. Every ${S.early_per_clear} early office days clear 1 red, up to ${S.max_clears} times a month. Counts reset on the 1st. Red and black include manager adjustments.</p></div>` : `<div class="panel"><p class="empty">No tracked employees.</p></div>`;
     const byId = Object.fromEntries(emps.map(e=>[e.id,e.name]));
     $("#rAdj").innerHTML = team.adj.length ? team.adj.map(a=>`<div class="item"><span><b>${esc(byId[a.employee_id]||"")}</b> ${a.delta>0?"+1":"-1"} ${esc(a.type)}</span><span class="small muted">${esc(a.reason)}</span><button class="btn small" data-del="${a.id}">Delete</button></div>`).join("") : `<p class="empty">No adjustments.</p>`;
     $("#rAdj").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
@@ -379,8 +487,8 @@ views.points = {
   csv(){
     const r = this.rows || []; if(!r.length){ toast("Nothing to export."); return; }
     const q = x => `"${String(x).replace(/"/g,'""')}"`;
-    const lines = [["Employee","Month","Office days","Remote days","Early","On time","Late","Absent","Reds cleared","Red","Black","Penalties"].map(q).join(",")];
-    for(const {e,s} of r) lines.push([e.name,this.ym,s.office,s.remote,s.early,s.ontime,s.late,s.absent,s.cleared,s.red,s.black,s.penalties].map(q).join(","));
+    const lines = [["Employee","Month","Office days","Remote days","Early","On time","Late","Allowed lates","Absent","Reds cleared","Red","Black","Penalties"].map(q).join(",")];
+    for(const {e,s} of r) lines.push([e.name,this.ym,s.office,s.remote,s.early,s.ontime,s.late,s.allowed,s.absent,s.cleared,s.red,s.black,s.penalties].map(q).join(","));
     const url = URL.createObjectURL(new Blob([lines.join("\n")],{type:"text/csv"}));
     const a = document.createElement("a"); a.href = url; a.download = `opus-points-${this.ym}.csv`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
@@ -513,10 +621,23 @@ views.settings = {
           <label class="f">Early credit from (min before start)<input type="number" min="1" max="240" id="sEMax" value="${S.early_max}"></label>
           <label class="f">Early credit until (min before start)<input type="number" min="1" max="180" id="sEarly" value="${S.early_min}"></label>
           <label class="f">Early credits to clear 1 red<input type="number" min="1" max="20" id="sPer" value="${S.early_per_clear}"></label>
+          <label class="f">Max clears per month<input type="number" min="0" max="31" id="sMaxC" value="${S.max_clears}"></label>
+          <label class="f">Allowed late days per month<input type="number" min="0" max="31" id="sAllow" value="${S.late_allowance}"></label>
         </div>
         <p class="small muted" style="margin:12px 0 6px">Default working days (used when the schedule has no entry)</p>
         <div class="days">${DOW.map((n,i)=>`<label><input type="checkbox" data-wd="${i}" ${S.workdays.includes(i)?"checked":""}>${n}</label>`).join("")}</div>
         <label class="f" style="margin-top:12px">Public holidays (YYYY-MM-DD, one per line)<textarea id="sHol" rows="3">${esc((S.holidays||[]).join("\n"))}</textarea></label>
+      </div>
+      <div class="panel"><h2>Breaks</h2>
+        <div class="grid">
+          <label class="f">Short break (min)<input type="number" min="1" id="sBsm" value="${S.break_short_min}"></label>
+          <label class="f">Short breaks per shift<input type="number" min="0" id="sBsc" value="${S.break_short_count}"></label>
+          <label class="f">Long break (min)<input type="number" min="1" id="sBlm" value="${S.break_long_min}"></label>
+          <label class="f">Long breaks per shift<input type="number" min="0" id="sBlc" value="${S.break_long_count}"></label>
+          <label class="f">Must stay available<input type="number" min="0" id="sMinA" value="${S.min_available}"></label>
+          <label class="f">Alert after (min over)<input type="number" min="1" id="sBal" value="${S.break_alert_after_min}"></label>
+        </div>
+        <p class="hint">Over the break length shows red on the Live board. Past the alert time, the employee and all managers get an email.</p>
       </div>
       <div class="panel"><h2>Office location</h2>
         <div class="grid">
@@ -541,10 +662,13 @@ views.settings = {
       const lat = parseFloat($("#sLat").value), lng = parseFloat($("#sLng").value);
       if(isNaN(lat) || isNaN(lng)){ toast("Enter the office latitude and longitude."); return; }
       const row = {
-        grace_min: Math.max(0, +$("#sGrace").value||0), early_min: Math.max(1, +$("#sEarly").value||10), early_max: Math.max(2, +$("#sEMax").value||60), early_per_clear: Math.max(1, Math.round(+$("#sPer").value||3)),
+        grace_min: Math.max(0, +$("#sGrace").value||0), early_min: Math.max(1, +$("#sEarly").value||10), early_max: Math.max(2, +$("#sEMax").value||60), early_per_clear: Math.max(1, Math.round(+$("#sPer").value||3)), max_clears: Math.max(0, Math.round(+$("#sMaxC").value||0)), late_allowance: Math.max(0, Math.round(+$("#sAllow").value||0)),
         workdays: [...document.querySelectorAll("[data-wd]")].filter(x=>x.checked).map(x=>+x.dataset.wd), holidays: hol,
         office_lat: lat, office_lng: lng, radius_m: Math.max(50, +$("#sRad").value||500),
-        alerts_enabled: $("#sAl").checked, alert_from: $("#sFrom").value.trim() || null
+        alerts_enabled: $("#sAl").checked,
+        break_short_min: Math.max(1, +$("#sBsm").value||15), break_short_count: Math.max(0, Math.round(+$("#sBsc").value||0)),
+        break_long_min: Math.max(1, +$("#sBlm").value||30), break_long_count: Math.max(0, Math.round(+$("#sBlc").value||0)),
+        min_available: Math.max(0, Math.round(+$("#sMinA").value||0)), break_alert_after_min: Math.max(1, +$("#sBal").value||15), alert_from: $("#sFrom").value.trim() || null
       };
       e.target.disabled = true;
       const { error } = await sb.from("settings").update(row).eq("id",1);
@@ -608,7 +732,9 @@ async function startApp(){
   $("#login").hidden = true; $("#app").hidden = false;
   $("#who").innerHTML = `<span>${esc(me.name)}</span><span class="role">${me.is_admin?"Manager":"Team member"}</span>`;
   if(me.tracked) await loadMine(ymOf(dkey(now())));
+  await refreshLive();
   renderTabs(); setTab(tab);
+  setInterval(() => { if(!document.hidden) refreshLive(); }, 15000);
   if(!poller) poller = setInterval(async () => { if(document.hidden) return; if(me.tracked && ["office","remote"].includes(tab)){ await loadMine(ymOf(dkey(now()))); update(); } }, 60000);
 }
 sb.auth.onAuthStateChange((ev, session) => {
