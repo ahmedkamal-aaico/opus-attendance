@@ -1,7 +1,7 @@
 "use strict";
 /* Preview mode: replaces Supabase with an in-browser sample database. Nothing is saved to the server. */
 (function(){
-  const KEY = "opus-demo-db-v9", AS = "opus-demo-as", SIM = "opus-demo-sim";
+  const KEY = "opus-demo-db-v12", AS = "opus-demo-as", SIM = "opus-demo-sim";
   const OFFICE = { lat:24.4290032, lng:54.4632417 };
   const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"});
   const dk = ms => fmt.format(ms);
@@ -11,9 +11,9 @@
 
   function build(){
     const shifts = [{id:"s08",start_time:"08:00:00",end_time:"17:00:00"},{id:"s09",start_time:"09:00:00",end_time:"18:00:00"},{id:"s14",start_time:"14:00:00",end_time:"23:00:00"}];
-    const S = { id:1, tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:60, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, break_wc_min:5, break_wc_count:2, min_available:1, break_alert_after_min:15, office_lat:OFFICE.lat, office_lng:OFFICE.lng, radius_m:500, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", alerts_enabled:true, alert_from:"Opus Attendance <attendance@aaico.com>" };
+    const S = { id:1, tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:15, checkin_open_min:15, late_hard_min:30, late_black_min:120, early_leave_min:5, break_edge_min:30, review_threshold:3, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, break_wc_min:5, break_wc_count:2, min_available:1, break_alert_after_min:15, office_lat:OFFICE.lat, office_lng:OFFICE.lng, radius_m:500, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", alerts_enabled:true, alert_from:"Opus Attendance <attendance@aaico.com>" };
     const people = [["Soufiane Douhaib","s08"],["Mahmoud Tharwat","s09"],["Moataz Noamani","s08"],["Minu Boban","s14"],["Asem Elsebaey","s09"]];
-    const employees = people.map(([name,shift],i) => ({ id:"e"+(i+1), name, email:name.split(" ")[0].toLowerCase()+"@demo.aaico.com", shift_id:shift, tracked:true, is_admin:false, active:true, since:null }));
+    const employees = people.map(([name,shift],i) => ({ id:"e"+(i+1), name, email:name.split(" ")[0].toLowerCase()+"@demo.aaico.com", shift_id:shift, default_mode: i===4 ? "remote" : "office", tracked:true, is_admin:false, active:true, since:null }));
     employees.unshift({ id:"m1", name:"Manager (you)", email:"manager@demo.aaico.com", shift_id:"s08", tracked:false, is_admin:true, active:true, since:null });
     const today = dk(Date.now()), [ty,tm] = today.split("-").map(Number);
     const prev = tm===1 ? `${ty-1}-12` : `${ty}-${String(tm-1).padStart(2,"0")}`;
@@ -26,7 +26,7 @@
     const minu = employees.find(e=>e.name.startsWith("Minu"));
     for(const k of days) if(k.slice(0,7)===today.slice(0,7)){
       const wd = new Date(k+"T12:00:00Z").getUTCDay();
-      schedule.push({ employee_id:minu.id, day:k, shift_id: wd===1 ? null : (wd===6 ? "s09" : "s14") });
+      schedule.push({ employee_id:minu.id, day:k, shift_id: (wd===0||wd===6) ? null : "s14" });
     }
     // Preview always treats today as a working day so check-in can be tried
     if(!S.workdays.includes(new Date(today+"T12:00:00Z").getUTCDay())){
@@ -42,24 +42,30 @@
       const sh = shifts.find(s=>s.id===sid), start = pHM(sh.start_time.slice(0,5)), end = pHM(sh.end_time.slice(0,5));
       const r = rnd();
       if(k === today && nowMin < start) continue;
-      if(r < 0.07){ if(k!==today) alerts_sent.push({ employee_id:e.id, day:k, sent_at:at(k,start+5) }); continue; }
-      const remote = r < 0.27;
+      if(r < 0.03){ if(k!==today) alerts_sent.push({ employee_id:e.id, day:k, sent_at:at(k,start+5) }); continue; }
+      const remote = e.default_mode==="remote" || (r < 0.2 && new Date(k+"T12:00:00Z").getUTCDay()===4);
       const q = rnd();
       const off = q < 0.35 ? -(11 + Math.floor(rnd()*15)) : q < 0.8 ? Math.floor(rnd()*10) - 5 : 6 + Math.floor(rnd()*35);
       if(k === today && nowMin < start + off) continue;
-      attendance.push({ employee_id:e.id, day:k, mode: remote ? "remote" : "office", check_in:at(k,start+off), check_out: k===today ? null : at(k,end+Math.floor(rnd()*20)), in_dist: remote ? null : 20 + Math.floor(rnd()*200), out_dist:null });
+      const sev = rnd() < 0.025 ? 45 + Math.floor(rnd()*60) : 0;
+      const early = rnd() < 0.08 ? 20 + Math.floor(rnd()*60) : 0;
+      attendance.push({ employee_id:e.id, day:k, mode: remote ? "remote" : "office", check_in:at(k,start+(sev||off)), check_out: k===today ? null : early ? at(k,end-early) : at(k,end+1), auto_out: k!==today && !early, in_dist: remote ? null : 20 + Math.floor(rnd()*200), out_dist:null });
     }
+    // Thursdays are remote for Thursday-remote agents in the schedule
+    for(const r0 of schedule) if(new Date(r0.day+"T12:00:00Z").getUTCDay()===4) r0.work_mode = "remote";
     // Live state for today: everyone except Mahmoud is already in, one on lunch, one over a short break
     const nowIso = m => new Date(Date.now() - m*60000).toISOString();
     const breaks = [];
     for(const e of employees.filter(x=>x.tracked && x.id!=="e2")){
       const i = attendance.findIndex(r=>r.employee_id===e.id && r.day===today); if(i>=0) attendance.splice(i,1);
       const st0 = pHM(shifts.find(x=>x.id===e.shift_id).start_time.slice(0,5));
-      attendance.push({ employee_id:e.id, day:today, mode: e.id==="e5" ? "remote" : "office", check_in:at(today, Math.max(0, Math.min(st0-5, nowMin-40))), check_out:null, in_dist: e.id==="e5" ? null : 60, out_dist:null });
+      attendance.push({ employee_id:e.id, day:today, mode: e.default_mode, check_in:at(today, Math.max(0, Math.min(st0-5, nowMin-40))), check_out:null, in_dist: e.id==="e5" ? null : 60, out_dist:null });
     }
     breaks.push({ id:1, employee_id:"e4", day:today, kind:"long", started_at:nowIso(12), ended_at:null });
     breaks.push({ id:2, employee_id:"e3", day:today, kind:"short", started_at:nowIso(33), ended_at:null });
+    breaks.push({ id:4, employee_id:"e5", day:today, kind:"meeting", started_at:nowIso(48), ended_at:null });
     breaks.push({ id:3, employee_id:"e1", day:today, kind:"short", started_at:nowIso(100), ended_at:nowIso(86) });
+    const overtime = [{ id:1, employee_id:"e4", day:today, minutes:60, reason:"Long escalation with a customer", status:"pending", decided_by:null, decided_at:null, created_at:new Date().toISOString() }];
     const adjustments = [{ id:1, employee_id:"e3", month:prev, type:"red", delta:-1, reason:"System outage, late check-in excused", created_by:"m1", created_at:new Date().toISOString() }];
     const excused = [{ employee_id:"e3", day: days.find(k=>k.slice(0,7)===prev && new Date(k+"T12:00:00Z").getUTCDay()===3) || days[0], reason:"Doctor appointment", created_at:new Date().toISOString() }];
     const audit_log = [
@@ -67,7 +73,7 @@
       { id:2, at:new Date(Date.now()-86400000).toISOString(), actor_name:"Manager (you)", actor_email:"manager@demo.aaico.com", action:"Adjusted points", target:"Moataz Noamani", details:prev+": -1 red. Reason: System outage, late check-in excused" },
       { id:3, at:new Date(Date.now()-3600000*5).toISOString(), actor_name:"System", actor_email:null, action:"Auto check-out", target:"Asem Elsebaey", details:"yesterday at 18:01" }
     ];
-    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, breaks, excused, audit_log, schedule_files:[], files:{}, _seq:10 };
+    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, breaks, excused, audit_log, overtime, schedule_files:[], files:{}, _seq:10 };
   }
   let DB;
   try{ DB = JSON.parse(sessionStorage.getItem(KEY)); }catch{}
@@ -79,7 +85,7 @@
   const visible = (t, rows) => {
     const m = meRow(); if(m.is_admin) return rows;
     if(t==="employees") return rows.filter(r=>r.id===m.id);
-    if(["attendance","schedule","adjustments","excused"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
+    if(["attendance","schedule","adjustments","excused","overtime"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
     if(t==="alerts_sent" || t==="audit_log") return [];
     return rows;
   };
@@ -142,6 +148,12 @@
     }
   }
   const dist = (a,b,c,d) => { const R=6371000, r=x=>x*Math.PI/180; const h=Math.sin(r(c-a)/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(r(d-b)/2)**2; return 2*R*Math.asin(Math.sqrt(h)); };
+  const nowMinD = () => { const p = new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Dubai",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(Date.now()); return +p.find(x=>x.type==="hour").value*60 + +p.find(x=>x.type==="minute").value; };
+  function shiftForD(e, k){
+    const S = DB.settings[0], sc = DB.schedule.find(r=>r.employee_id===e.id && r.day===k), wd = new Date(k+"T12:00:00Z").getUTCDay();
+    const sid = (sc && sc.shift_id) || e.shift_id, sh = DB.shifts.find(x=>x.id===sid);
+    return { sh, start: pHM(sh.start_time.slice(0,5)), end: pHM(sh.end_time.slice(0,5)), off: sc ? !sc.shift_id : !S.workdays.includes(wd), mode: (sc && sc.work_mode) || e.default_mode || "office" };
+  }
   async function rpc(name, a){
     const S = DB.settings[0], m = meRow(), today = dk(Date.now());
     if(name==="server_now") return { data:new Date().toISOString(), error:null };
@@ -149,6 +161,11 @@
     if(name==="check_in"){
       if(!m.tracked) return fail("This account is not registered for attendance.");
       if(DB.attendance.some(r=>r.employee_id===m.id && r.day===today)) return fail("You already checked in today.");
+      const sf = shiftForD(m, today), nm = nowMinD();
+      if(sf.off) return fail("You have no shift today.");
+      if(nm < sf.start - S.checkin_open_min) return fail(`Check-in opens at ${String(Math.floor((sf.start-S.checkin_open_min)/60)).padStart(2,"0")}:${String((sf.start-S.checkin_open_min)%60).padStart(2,"0")}.`);
+      if(nm >= sf.end) return fail("Your shift has ended.");
+      a.p_mode = sf.mode;
       let d = null;
       if(a.p_mode==="office"){
         if(a.p_lat==null) return fail("Office check-in needs your location. Allow location access and try again.");
@@ -162,10 +179,13 @@
       if(!m.is_admin) return fail("Only managers can change the schedule.");
       let t = Date.parse(a.p_from+"T12:00:00Z"); const e = Date.parse(a.p_to+"T12:00:00Z");
       while(t <= e){ const k = new Date(t).toISOString().slice(0,10), wd = new Date(t).getUTCDay();
-        const v = a.p_shift==="off" ? null : (a.p_working_only && !S.workdays.includes(wd)) ? null : a.p_shift;
-        const ex = DB.schedule.find(r=>r.employee_id===a.p_employee && r.day===k); if(ex) ex.shift_id = v; else DB.schedule.push({ employee_id:a.p_employee, day:k, shift_id:v }); t += 864e5; }
+        const emp = DB.employees.find(x=>x.id===a.p_employee), ex = DB.schedule.find(r=>r.employee_id===a.p_employee && r.day===k);
+        if(a.p_shift==="keep"){ const cur = shiftForD(emp, k); if(!cur.off){ if(ex){ if(a.p_mode) ex.work_mode = a.p_mode; } else DB.schedule.push({ employee_id:a.p_employee, day:k, shift_id:cur.sh.id, work_mode:a.p_mode||null }); } }
+        else { const v = a.p_shift==="off" ? null : (a.p_working_only && !S.workdays.includes(wd)) ? null : a.p_shift;
+          if(ex){ ex.shift_id = v; if(a.p_mode) ex.work_mode = a.p_mode; } else DB.schedule.push({ employee_id:a.p_employee, day:k, shift_id:v, work_mode:a.p_mode||null }); }
+        t += 864e5; }
       const sh = DB.shifts.find(x=>x.id===a.p_shift);
-      audit("Changed schedule", nameOf(a.p_employee), `${a.p_from===a.p_to ? a.p_from : a.p_from+" to "+a.p_to}: ${sh ? sh.start_time.slice(0,5)+" to "+sh.end_time.slice(0,5) : "Day off"}`);
+      audit("Changed schedule", nameOf(a.p_employee), `${a.p_from===a.p_to ? a.p_from : a.p_from+" to "+a.p_to}: ${sh ? sh.start_time.slice(0,5)+" to "+sh.end_time.slice(0,5) : a.p_shift==="keep" ? "shift unchanged" : "Day off"}${a.p_mode ? ", "+a.p_mode[0].toUpperCase()+a.p_mode.slice(1) : ""}`);
       save(); return { data:1, error:null };
     }
     if(name==="set_excused"){
@@ -184,16 +204,20 @@
         const ob = DB.breaks.find(b=>b.employee_id===e.id && !b.ended_at);
         const used = k => DB.breaks.filter(b=>b.employee_id===e.id && b.day===today && b.kind===k).length;
         return { employee_id:e.id, name:e.name, shift_start:sh.start_time, shift_end:sh.end_time, is_off: sc ? !sc.shift_id : !S.workdays.includes(wd),
-          check_in:a2?.check_in||null, check_out:a2?.check_out||null, mode:a2?.mode||null, break_kind:ob?.kind||null, break_started:ob?.started_at||null,
-          break_allowed: ob ? (ob.kind==="long" ? S.break_long_min : ob.kind==="wc" ? S.break_wc_min : S.break_short_min) : null, short_used:used("short"), long_used:used("long"), wc_used:used("wc") };
+          check_in:a2?.check_in||null, check_out:a2?.check_out||null, auto_out:!!a2?.auto_out, mode:a2?.mode||null, work_mode:(sc&&sc.work_mode)||e.default_mode, break_kind:ob?.kind||null, break_started:ob?.started_at||null,
+          break_allowed: ob ? (ob.kind==="long" ? S.break_long_min : ob.kind==="wc" ? S.break_wc_min : ob.kind==="short" ? S.break_short_min : null) : null, short_used:used("short"), long_used:used("long"), wc_used:used("wc") };
       });
       return { data:tr, error:null };
     }
     if(name==="start_break"){
       if(!DB.attendance.some(r=>r.employee_id===m.id && r.day===today && !r.check_out)) return fail("Check in before starting a break.");
-      if(DB.breaks.some(b=>b.employee_id===m.id && !b.ended_at)) return fail("You are already on a break.");
-      const used = DB.breaks.filter(b=>b.employee_id===m.id && b.day===today && b.kind===a.p_kind).length;
-      if(used >= (a.p_kind==="short" ? S.break_short_count : a.p_kind==="wc" ? S.break_wc_count : S.break_long_count)) return fail("No breaks of that type left today.");
+      if(DB.breaks.some(b=>b.employee_id===m.id && !b.ended_at)) return fail("End your current status first.");
+      if(["short","long","wc"].includes(a.p_kind)){
+        const sf = shiftForD(m, today), nm = nowMinD();
+        if(nm < sf.start + S.break_edge_min || nm > sf.end - S.break_edge_min) return fail(`Breaks are not allowed in the first or last ${S.break_edge_min} minutes of your shift.`);
+        const used = DB.breaks.filter(b=>b.employee_id===m.id && b.day===today && b.kind===a.p_kind).length;
+        if(used >= (a.p_kind==="short" ? S.break_short_count : a.p_kind==="wc" ? S.break_wc_count : S.break_long_count)) return fail("No breaks of that type left today.");
+      }
       const avail = DB.attendance.filter(r=>r.day===today && !r.check_out && r.employee_id!==m.id && !DB.breaks.some(b=>b.employee_id===r.employee_id && !b.ended_at)).length;
       if(avail < S.min_available) return fail(`At least ${S.min_available} teammate(s) must stay available. Wait until someone is back.`);
       const r = { id:DB._seq++, employee_id:m.id, day:today, kind:a.p_kind, started_at:new Date().toISOString(), ended_at:null };
@@ -202,6 +226,18 @@
     if(name==="end_break"){
       const b = DB.breaks.find(x=>x.employee_id===m.id && !x.ended_at); if(!b) return fail("You are not on a break.");
       b.ended_at = new Date().toISOString(); save(); return { data:{...b}, error:null };
+    }
+    if(name==="request_overtime"){
+      if(!DB.attendance.some(r=>r.employee_id===m.id && r.day===today && !r.check_out)) return fail("You need to be checked in to extend your shift.");
+      if(DB.overtime.some(o=>o.employee_id===m.id && o.day===today && o.status==="pending")) return fail("You already have a pending request today.");
+      const r = { id:DB._seq++, employee_id:m.id, day:today, minutes:a.p_minutes, reason:a.p_reason||null, status:"pending", decided_by:null, decided_at:null, created_at:new Date().toISOString() };
+      DB.overtime.push(r); audit("Requested overtime", m.name, `${a.p_minutes} min${a.p_reason?". Reason: "+a.p_reason:""}`); save(); return { data:{...r}, error:null };
+    }
+    if(name==="decide_overtime"){
+      if(!m.is_admin) return fail("Only managers can decide overtime.");
+      const o = DB.overtime.find(x=>x.id===a.p_id && x.status==="pending"); if(!o) return fail("This request was already decided.");
+      o.status = a.p_approve ? "approved" : "rejected"; o.decided_by = m.name; o.decided_at = new Date().toISOString();
+      audit(a.p_approve ? "Approved overtime" : "Rejected overtime", nameOf(o.employee_id), `${o.day}: ${o.minutes} min`); save(); return { data:{...o}, error:null };
     }
     if(name==="check_out"){
       DB.breaks.filter(b=>b.employee_id===m.id && !b.ended_at).forEach(b=>b.ended_at=new Date().toISOString());

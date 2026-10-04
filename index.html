@@ -281,7 +281,100 @@ label.btn{display:inline-block}
 .cal-exc{font-size:12px;font-weight:600;color:var(--accent);background:var(--bg);border:1px dashed var(--accent);border-radius:7px;padding:4px 6px}
 .nowrap{white-space:nowrap}
 .audit td{vertical-align:top}
+.pcard.st-busy{border-left-color:var(--muted)}
+.p-busy{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+.bcards.two{grid-template-columns:repeat(2,1fr)}
+.bcard.work .bc-ico svg{width:30px;height:30px;fill:none;stroke:var(--ink);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.tally{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
 footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
+
+/* ===== Modern refresh ===== */
+:root{--bg:#F4F5F7;--surface:#FFFFFF;--ink:#0B1220;--muted:#667085;--line:#E4E7EC;--accent:#111827;--accent-ink:#FFFFFF;--shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.04);
+  --green:#12805C;--green-bg:#E3F5EC;--red:#C2362B;--red-bg:#FDECEA;--blk:#1F2937;--blk-bg:#E9ECF1;--amber:#946200;--amber-bg:#FDF3DC;
+  --zone-early:#BFE8D3;--zone-ok:#ECEFF3;--zone-late:#F7D1CC}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B0F17;--surface:#131A27;--ink:#E7EBF3;--muted:#95A1B5;--line:#242D3D;--accent:#F2F4F7;--accent-ink:#0B0F17;--shadow:none;
+  --green:#5FD3A0;--green-bg:#14301F;--red:#F38B80;--red-bg:#3A1C1A;--blk:#D3D9E4;--blk-bg:#232B3A;--amber:#EDB653;--amber-bg:#33270F;--zone-early:#1E4A36;--zone-ok:#222B3B;--zone-late:#4C2422}}
+:root[data-theme="dark"]{--bg:#0B0F17;--surface:#131A27;--ink:#E7EBF3;--muted:#95A1B5;--line:#242D3D;--accent:#F2F4F7;--accent-ink:#0B0F17;--shadow:none;
+  --green:#5FD3A0;--green-bg:#14301F;--red:#F38B80;--red-bg:#3A1C1A;--blk:#D3D9E4;--blk-bg:#232B3A;--amber:#EDB653;--amber-bg:#33270F;--zone-early:#1E4A36;--zone-ok:#222B3B;--zone-late:#4C2422}
+body{font-size:14.5px;letter-spacing:-.003em}
+.shell{display:grid;grid-template-columns:252px minmax(0,1fr);min-height:100%}
+.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:18px;padding:22px 16px 16px;background:var(--surface);border-right:1px solid var(--line)}
+.sb-logo{display:flex;flex-direction:column;gap:10px;padding:0 8px}
+.sb-logo .logo{height:24px;width:auto;align-self:flex-start}
+.sb-logo span{font-size:12px;color:var(--muted);line-height:1.35}
+.sidebar .side{position:static;border:0;background:none;padding:0;border-radius:0;flex:1;overflow-y:auto;gap:2px}
+.side-head{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:14px 10px 6px}
+.side button{border-radius:10px;padding:9px 10px;font-weight:500;color:var(--ink)}
+.side button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+.sb-foot{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.sb-user{display:flex;align-items:center;gap:10px;padding:0 6px}
+.sb-user .nm{font-weight:600;font-size:13.5px;line-height:1.2}
+.sb-user .rl{font-size:12px;color:var(--muted)}
+.sb-actions{display:flex;gap:6px;flex-wrap:wrap}
+.content{padding:28px 36px 48px;min-width:0;max-width:1180px;width:100%}
+.pagehead{margin-bottom:20px}
+.pagehead h1{font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0;line-height:1.2}
+.pagehead p{margin:4px 0 0;color:var(--muted)}
+.panel{border-radius:16px;border:1px solid var(--line);box-shadow:var(--shadow);padding:18px 20px}
+.btn{border-radius:10px;font-weight:500;transition:background .12s,border-color .12s}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{opacity:.9}
+.tally{gap:12px}
+.tally div{border-radius:12px;padding:12px 14px}
+.tally .n{font-size:28px;font-weight:600;letter-spacing:-.02em}
+.chip{border-radius:999px;padding:3px 10px}
+.hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;align-items:center;background:var(--accent);color:var(--accent-ink);border-radius:20px;padding:26px 28px;margin-bottom:14px}
+.hero .date{opacity:.7;font-size:14px}
+.hero .time{font-weight:300;font-size:clamp(52px,7vw,84px);line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin:6px 0 10px}
+.hero-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;opacity:.9}
+.hero-r{display:flex;flex-direction:column;gap:16px;align-items:flex-start}
+.hero .state{font-size:15.5px;line-height:1.5}
+.hero .state .muted{color:inherit;opacity:.7}
+.hero .btn{border-color:transparent}
+.hero .btn.primary{background:var(--accent-ink);color:var(--accent)}
+.hero .btn:not(.primary){background:rgba(255,255,255,.12);color:inherit;border:1px solid rgba(255,255,255,.25)}
+:root[data-theme="dark"] .hero .btn:not(.primary){background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.2)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero .btn:not(.primary){background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.2)}}
+.hero .btn:disabled{opacity:.55}
+.mode-chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;padding:3px 10px 3px 8px;border-radius:999px;background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+.hero .mode-chip{background:rgba(255,255,255,.14);color:inherit;border-color:rgba(255,255,255,.25)}
+.mode-chip svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
+.av{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;font-size:11.5px;font-weight:700;flex:none;background:hsl(var(--h) 70% 92%);color:hsl(var(--h) 50% 28%)}
+:root[data-theme="dark"] .av{background:hsl(var(--h) 35% 24%);color:hsl(var(--h) 70% 85%)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .av{background:hsl(var(--h) 35% 24%);color:hsl(var(--h) 70% 85%)}}
+.avn{display:inline-flex;align-items:center;gap:10px;font-weight:500}
+.flag-red{font-size:12px;color:var(--red);font-weight:500;margin-top:3px}
+.ot-row{display:flex;gap:8px;flex-wrap:wrap}
+.ot-row .inl{flex:1;min-width:140px}
+.ot-row select.inl{flex:0 0 auto}
+.cal-mode{font-size:10.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.ocell sup{font-size:9px;margin-left:1px;color:var(--muted)}
+.rows tr.review td{background:var(--red-bg)}
+.alertbar.soft{background:var(--amber-bg);color:var(--amber);border-color:transparent}
+.pcard{border-radius:14px;border-left-width:1px;box-shadow:var(--shadow);padding:14px 16px}
+.pcard.st-available{box-shadow:inset 3px 0 0 var(--green),var(--shadow)}
+.pcard.st-break{box-shadow:inset 3px 0 0 var(--amber),var(--shadow)}
+.pcard.st-over{box-shadow:inset 3px 0 0 var(--red),var(--shadow)}
+.pcard.st-busy{box-shadow:inset 3px 0 0 var(--muted),var(--shadow)}
+.bcard{border-radius:14px;background:var(--surface);box-shadow:var(--shadow)}
+.bcard:hover:not(:disabled){border-color:var(--ink)}
+.ms-hero{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.cal-d{border-radius:12px}
+.cal-d.today{border-color:var(--ink)}
+.side button svg{color:inherit;opacity:.75}
+@media (max-width:860px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .sidebar{position:static;height:auto;flex-direction:column;gap:10px;padding:12px;border-right:0;border-bottom:1px solid var(--line)}
+  .sb-logo{flex-direction:row;align-items:center;justify-content:space-between}
+  .sb-logo span{display:none}
+  .sidebar .side{order:0;flex-direction:row;overflow-x:auto;scrollbar-width:none;flex:none}
+  .sidebar .side::-webkit-scrollbar{display:none}
+  .side-head{display:none}
+  .side button{width:auto;white-space:nowrap}
+  .sb-foot{flex-direction:row;align-items:center;justify-content:space-between;padding-top:10px}
+  .content{padding:18px 14px 40px}
+  .hero{grid-template-columns:1fr;padding:20px}
+}
 </style>
 </head>
 <body>
@@ -305,33 +398,21 @@ footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
     </div>
   </div>
 </section>
-<div class="wrap" id="app" hidden>
-  <header class="top">
-    <div class="brand"><img class="logo" src="/logo.png" alt="Applied AI"><small>Opus Support Attendance</small></div>
-    <div class="who"><span id="who"></span><button class="btn small theme-btn" data-theme-toggle><span class="sw"></span><span class="tl">Night mode</span></button><button class="btn small" id="signout">Sign out</button></div>
-  </header>
-  <div id="alertbar" class="alertbar" role="alert" hidden></div>
-  <div class="layout">
+<div class="shell" id="app" hidden>
+  <aside class="sidebar">
+    <div class="sb-logo"><img class="logo" src="/logo.png" alt="Applied AI"><span>Opus Support<br>Attendance</span></div>
     <nav class="side" id="tabs" role="tablist" aria-label="Sections"></nav>
+    <div class="sb-foot">
+      <div class="sb-user" id="who"></div>
+      <div class="sb-actions"><button class="btn small theme-btn" data-theme-toggle><span class="sw"></span><span class="tl">Night mode</span></button><button class="btn small" id="signout">Sign out</button></div>
+    </div>
+  </aside>
+  <div class="content">
+    <header class="pagehead"><h1 id="pgTitle"></h1><p id="pgSub"></p></header>
+    <div id="alertbar" class="alertbar" role="alert" hidden></div>
     <main id="main"></main>
   </div>
-  <footer class="foot">Applied AI, Opus Support Team</footer>
 </div>
-<dialog id="ciDlg" class="dlg" aria-labelledby="ciTitle">
-  <form method="dialog" class="dlg-x"><button class="btn small" aria-label="Close">Close</button></form>
-  <h2 id="ciTitle">Where are you working today?</h2>
-  <div class="ci-opts">
-    <button class="ci-opt" data-mode="office">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V8l8-4 8 4v12"/><path d="M9 20v-5h6v5M8 10h2M14 10h2"/></svg>
-      <b>Office</b><span>You must be within <span id="ciRadius">500</span> m of the office. Your location is checked once.</span>
-    </button>
-    <button class="ci-opt" data-mode="remote">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-6 8 6v9H4z"/><path d="M10 20v-5h4v5"/></svg>
-      <b>Remotely</b><span>No location needed. Early check-in earns no credit.</span>
-    </button>
-  </div>
-  <p class="err" id="ciErr" role="alert"></p>
-</dialog>
 <dialog id="exDlg" class="dlg" aria-labelledby="exTitle">
   <form method="dialog" class="dlg-x"><button class="btn small" aria-label="Close">Close</button></form>
   <h2 id="exTitle">Excuse</h2>
