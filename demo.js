@@ -1,7 +1,7 @@
 "use strict";
 /* Preview mode: replaces Supabase with an in-browser sample database. Nothing is saved to the server. */
 (function(){
-  const KEY = "opus-demo-db-v13", AS = "opus-demo-as", SIM = "opus-demo-sim";
+  const KEY = "opus-demo-db-v14", AS = "opus-demo-as", SIM = "opus-demo-sim";
   const OFFICE = { lat:24.4290032, lng:54.4632417 };
   const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"});
   const dk = ms => fmt.format(ms);
@@ -11,7 +11,7 @@
 
   function build(){
     const shifts = [{id:"s08",start_time:"08:00:00",end_time:"17:00:00"},{id:"s09",start_time:"09:00:00",end_time:"18:00:00"},{id:"s14",start_time:"14:00:00",end_time:"23:00:00"}];
-    const S = { id:1, tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:15, checkin_open_min:15, late_hard_min:30, late_black_min:120, early_leave_min:5, break_edge_min:30, review_threshold:3, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, break_wc_min:5, break_wc_count:2, min_available:1, break_alert_after_min:15, office_lat:OFFICE.lat, office_lng:OFFICE.lng, radius_m:500, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", alerts_enabled:true, alert_from:"Opus Attendance <attendance@aaico.com>" };
+    const S = { id:1, tz:"Asia/Dubai", grace_min:5, early_min:10, early_max:15, checkin_open_min:15, late_hard_min:30, late_black_min:120, adherence_target:90, early_leave_min:5, break_edge_min:30, review_threshold:3, early_per_clear:3, late_allowance:2, max_clears:2, break_short_min:15, break_short_count:2, break_long_min:30, break_long_count:1, break_wc_min:5, break_wc_count:2, min_available:1, break_alert_after_min:15, office_lat:OFFICE.lat, office_lng:OFFICE.lng, radius_m:500, workdays:[1,2,3,4,5], holidays:[], default_shift:"s08", alerts_enabled:true, alert_from:"Opus Attendance <attendance@aaico.com>" };
     const people = [["Soufiane Douhaib","s08"],["Mahmoud Tharwat","s09"],["Moataz Noamani","s08"],["Minu Boban","s14"],["Asem Elsebaey","s09"]];
     const employees = people.map(([name,shift],i) => ({ id:"e"+(i+1), name, email:name.split(" ")[0].toLowerCase()+"@demo.aaico.com", shift_id:shift, default_mode: i===4 ? "remote" : "office", tracked:true, is_admin:false, active:true, since:null }));
     employees.unshift({ id:"m1", name:"Manager (you)", email:"manager@demo.aaico.com", shift_id:"s08", tracked:false, is_admin:true, active:true, since:null });
@@ -22,7 +22,7 @@
       const [y,m] = ym.split("-").map(Number), n = new Date(Date.UTC(y,m,0)).getUTCDate();
       for(let d=1; d<=n; d++){ const k = `${ym}-${String(d).padStart(2,"0")}`; if(k > today) break; days.push(k); }
     }
-    const schedule = [], attendance = [], alerts_sent = [];
+    const schedule = [], attendance = [];
     const minu = employees.find(e=>e.name.startsWith("Minu"));
     for(const k of days) if(k.slice(0,7)===today.slice(0,7)){
       const wd = new Date(k+"T12:00:00Z").getUTCDay();
@@ -42,7 +42,7 @@
       const sh = shifts.find(s=>s.id===sid), start = pHM(sh.start_time.slice(0,5)), end = pHM(sh.end_time.slice(0,5));
       const r = rnd();
       if(k === today && nowMin < start) continue;
-      if(r < 0.03){ if(k!==today) alerts_sent.push({ employee_id:e.id, day:k, sent_at:at(k,start+5) }); continue; }
+      if(r < 0.03) continue;
       const remote = e.default_mode==="remote" || (r < 0.2 && new Date(k+"T12:00:00Z").getUTCDay()===4);
       const q = rnd();
       const off = q < 0.35 ? -(11 + Math.floor(rnd()*15)) : q < 0.8 ? Math.floor(rnd()*10) - 5 : 6 + Math.floor(rnd()*35);
@@ -63,6 +63,9 @@
     }
     breaks.push({ id:1, employee_id:"e4", day:today, kind:"long", started_at:nowIso(12), ended_at:null });
     breaks.push({ id:2, employee_id:"e3", day:today, kind:"short", started_at:nowIso(33), ended_at:null });
+    let bid = 100;
+    for(const r0 of attendance) if(r0.day!==today && rnd() < 0.5){ const st = Date.parse(r0.check_in) + 3*3600000; const over = rnd() < 0.2 ? 6 + Math.floor(rnd()*15) : 0;
+      breaks.push({ id:bid++, employee_id:r0.employee_id, day:r0.day, kind:"long", started_at:new Date(st).toISOString(), ended_at:new Date(st + (30+over)*60000).toISOString() }); }
     breaks.push({ id:4, employee_id:"e5", day:today, kind:"meeting", started_at:nowIso(48), ended_at:null });
     breaks.push({ id:3, employee_id:"e1", day:today, kind:"short", started_at:nowIso(100), ended_at:nowIso(86) });
     const overtime = [{ id:1, employee_id:"e4", day:today, minutes:60, reason:"Long escalation with a customer", status:"pending", decided_by:null, decided_at:null, created_at:new Date().toISOString() }];
@@ -73,7 +76,7 @@
       { id:2, at:new Date(Date.now()-86400000).toISOString(), actor_name:"Manager (you)", actor_email:"manager@demo.aaico.com", action:"Adjusted points", target:"Moataz Noamani", details:prev+": -1 red. Reason: System outage, late check-in excused" },
       { id:3, at:new Date(Date.now()-3600000*5).toISOString(), actor_name:"System", actor_email:null, action:"Auto check-out", target:"Asem Elsebaey", details:"yesterday at 18:01" }
     ];
-    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, breaks, excused, audit_log, overtime, issues:[], schedule_files:[], files:{}, _seq:10 };
+    return { settings:[S], shifts, employees, schedule, attendance, adjustments, breaks, excused, audit_log, overtime, issues:[], files:{}, _seq:10 };
   }
   let DB;
   try{ DB = JSON.parse(sessionStorage.getItem(KEY)); }catch{}
@@ -86,7 +89,7 @@
     const m = meRow(); if(m.is_admin) return rows;
     if(t==="employees") return rows.filter(r=>r.id===m.id);
     if(["attendance","schedule","adjustments","excused","overtime","issues"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
-    if(t==="alerts_sent" || t==="audit_log") return [];
+    if(t==="audit_log") return [];
     return rows;
   };
 
@@ -103,7 +106,6 @@
     maybeSingle(){ this.one="maybe"; return this; }
     single(){ this.one="single"; return this; }
     insert(p){ this.op="insert"; this.payload=p; return this; }
-    upsert(p){ this.op="upsert"; this.payload=p; return this; }
     update(p){ this.op="update"; this.payload=p; return this; }
     delete(){ this.op="delete"; return this; }
     then(res){ try{ res(this.run()); }catch(e){ res({ data:null, error:{ message:e.message, code:e.code } }); } }
@@ -117,15 +119,6 @@
         if(this.lim) out = out.slice(0, this.lim);
         return { data: this.one ? (out[0]||null) : out, error:null };
       }
-      if(this.op==="upsert"){
-        const keyOf = r => this.t==="schedule_files" ? r.month : this.t==="schedule" ? r.employee_id+"|"+r.day : r.id;
-        for(const p of [].concat(this.payload)){
-          const ex = rows.find(r=>keyOf(r)===keyOf(p));
-          if(ex) Object.assign(ex, p); else rows.push({...p});
-        }
-        save(); return { data:null, error:null };
-      }
-      if(this.op==="insert" && Array.isArray(this.payload)){ rows.push(...this.payload.map(r=>({...r}))); save(); return { data:null, error:null }; }
       if(this.op==="insert"){
         const r = { ...this.payload };
         if(this.t==="employees"){ r.id = "e"+(DB._seq++); r.email = r.email||null; r.active = r.active ?? true; r.is_admin = r.is_admin ?? false; r.since = r.since ?? null; }
@@ -191,8 +184,9 @@
     if(name==="set_excused"){
       if(!m.is_admin) return fail("Only managers can excuse days.");
       DB.excused = DB.excused.filter(r=>!(r.employee_id===a.p_employee && r.day===a.p_day));
-      if(a.p_excused){ DB.excused.push({ employee_id:a.p_employee, day:a.p_day, reason:a.p_reason||null }); audit("Excused day", nameOf(a.p_employee), a.p_day + (a.p_reason ? ": "+a.p_reason : "")); }
-      else audit("Removed excused day", nameOf(a.p_employee), a.p_day);
+      const LBL = { paid:"Paid leave", sick:"Sick leave", half:"Half day, paid", unpaid:"Unpaid day", excused:"Excused" };
+      if(a.p_excused){ DB.excused.push({ employee_id:a.p_employee, day:a.p_day, reason:a.p_reason||null, leave_type:a.p_type||"excused" }); audit(LBL[a.p_type||"excused"], nameOf(a.p_employee), a.p_day + (a.p_reason ? ": "+a.p_reason : "")); }
+      else audit("Set back to working day", nameOf(a.p_employee), a.p_day);
       save(); return { data:null, error:null };
     }
     if(name==="team_status"){
@@ -203,7 +197,7 @@
         const a2 = DB.attendance.find(r=>r.employee_id===e.id && r.day===today);
         const ob = DB.breaks.find(b=>b.employee_id===e.id && !b.ended_at);
         const used = k => DB.breaks.filter(b=>b.employee_id===e.id && b.day===today && b.kind===k).length;
-        return { employee_id:e.id, name:e.name, shift_start:sh.start_time, shift_end:sh.end_time, is_off: sc ? !sc.shift_id : !S.workdays.includes(wd),
+        return { employee_id:e.id, name:e.name, avatar_url:e.avatar_url||null, shift_start:sh.start_time, shift_end:sh.end_time, is_off: sc ? !sc.shift_id : !S.workdays.includes(wd),
           check_in:a2?.check_in||null, check_out:a2?.check_out||null, auto_out:!!a2?.auto_out, mode:a2?.mode||null, work_mode:(sc&&sc.work_mode)||e.default_mode, break_kind:ob?.kind||null, break_started:ob?.started_at||null,
           break_allowed: ob ? (ob.kind==="long" ? S.break_long_min : ob.kind==="wc" ? S.break_wc_min : ob.kind==="short" ? S.break_short_min : null) : null, short_used:used("short"), long_used:used("long"), wc_used:used("wc") };
       });
@@ -227,6 +221,7 @@
       const b = DB.breaks.find(x=>x.employee_id===m.id && !x.ended_at); if(!b) return fail("You are not on a break.");
       b.ended_at = new Date().toISOString(); save(); return { data:{...b}, error:null };
     }
+    if(name==="set_my_avatar"){ const e = DB.employees.find(x=>x.id===m.id); e.avatar_url = a.p_url; save(); return { data:null, error:null }; }
     if(name==="report_issue"){
       DB.issues = DB.issues || [];
       const r = { id:DB._seq++, employee_id:m.id, category:a.p_category, message:a.p_message, page:a.p_page, user_agent:a.p_user_agent, created_at:new Date().toISOString() };
@@ -260,13 +255,12 @@
   }
 
   const storage = { from: () => ({
-    upload: (path, blob) => new Promise(res => { const f = new FileReader(); f.onload = () => { DB.files = {}; DB.files[path] = f.result; save(); res({ data:{ path }, error:null }); }; f.readAsDataURL(blob); }),
-    createSignedUrl: async path => ({ data:{ signedUrl: DB.files[path] || null }, error:null })
+    upload: (path, blob) => new Promise(res => { const f = new FileReader(); f.onload = () => { DB.files = DB.files || {}; DB.files[path] = f.result; save(); res({ data:{ path }, error:null }); }; f.readAsDataURL(blob); }),
+    getPublicUrl: path => ({ data:{ publicUrl: (DB.files||{})[path] || "" } })
   }) };
-  const functions = { invoke: async () => ({ data:null, error:{ message:"Reading shifts from the image works on the live system once the API key is added. In the preview, use Change shifts below." } }) };
   window.supabase = { createClient: () => ({
     from: t => new Q(t),
-    rpc, storage, functions,
+    rpc, storage,
     auth: {
       getUser: async () => ({ data:{ user:{ email: meRow().email } } }),
       getSession: async () => ({ data:{ session:{ demo:true } } }),
