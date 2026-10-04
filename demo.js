@@ -1,7 +1,7 @@
 "use strict";
 /* Preview mode: replaces Supabase with an in-browser sample database. Nothing is saved to the server. */
 (function(){
-  const KEY = "opus-demo-db-v12", AS = "opus-demo-as", SIM = "opus-demo-sim";
+  const KEY = "opus-demo-db-v13", AS = "opus-demo-as", SIM = "opus-demo-sim";
   const OFFICE = { lat:24.4290032, lng:54.4632417 };
   const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"});
   const dk = ms => fmt.format(ms);
@@ -73,7 +73,7 @@
       { id:2, at:new Date(Date.now()-86400000).toISOString(), actor_name:"Manager (you)", actor_email:"manager@demo.aaico.com", action:"Adjusted points", target:"Moataz Noamani", details:prev+": -1 red. Reason: System outage, late check-in excused" },
       { id:3, at:new Date(Date.now()-3600000*5).toISOString(), actor_name:"System", actor_email:null, action:"Auto check-out", target:"Asem Elsebaey", details:"yesterday at 18:01" }
     ];
-    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, breaks, excused, audit_log, overtime, schedule_files:[], files:{}, _seq:10 };
+    return { settings:[S], shifts, employees, schedule, attendance, adjustments, alerts_sent, breaks, excused, audit_log, overtime, issues:[], schedule_files:[], files:{}, _seq:10 };
   }
   let DB;
   try{ DB = JSON.parse(sessionStorage.getItem(KEY)); }catch{}
@@ -85,7 +85,7 @@
   const visible = (t, rows) => {
     const m = meRow(); if(m.is_admin) return rows;
     if(t==="employees") return rows.filter(r=>r.id===m.id);
-    if(["attendance","schedule","adjustments","excused","overtime"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
+    if(["attendance","schedule","adjustments","excused","overtime","issues"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
     if(t==="alerts_sent" || t==="audit_log") return [];
     return rows;
   };
@@ -226,6 +226,11 @@
     if(name==="end_break"){
       const b = DB.breaks.find(x=>x.employee_id===m.id && !x.ended_at); if(!b) return fail("You are not on a break.");
       b.ended_at = new Date().toISOString(); save(); return { data:{...b}, error:null };
+    }
+    if(name==="report_issue"){
+      DB.issues = DB.issues || [];
+      const r = { id:DB._seq++, employee_id:m.id, category:a.p_category, message:a.p_message, page:a.p_page, user_agent:a.p_user_agent, created_at:new Date().toISOString() };
+      DB.issues.push(r); save(); return { data:{...r}, error:null };
     }
     if(name==="request_overtime"){
       if(!DB.attendance.some(r=>r.employee_id===m.id && r.day===today && !r.check_out)) return fail("You need to be checked in to extend your shift.");

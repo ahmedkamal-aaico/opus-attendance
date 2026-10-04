@@ -289,12 +289,32 @@ label.btn{display:inline-block}
 footer.foot{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
 
 /* ===== Modern refresh ===== */
+.shiftcd{margin-top:14px;max-width:420px}
+.cd-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px}
+.cd-txt{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.cd-pct{font-size:12.5px;opacity:.7}
+.cd-bar{height:6px;border-radius:999px;background:rgba(127,127,127,.25);overflow:hidden}
+.cd-bar i{display:block;height:100%;width:0;border-radius:999px;background:currentColor;transition:width .4s}
+.sb-shift{padding:10px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--line)}
+.shiftcd.mini{margin-top:4px}
+.shiftcd.mini .cd-txt{font-size:13.5px}
+.shiftcd.mini .cd-bar{height:4px}
+.shiftcd.mini .cd-bar i{background:var(--ink)}
+.bl{display:grid;grid-template-columns:repeat(3,max-content);gap:6px;margin-top:8px;padding-top:10px;border-top:1px dashed var(--line)}
+.bl-h{grid-column:1/-1;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.bl-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-size:12px}
+.bl-pill b{font-weight:600;font-variant-numeric:tabular-nums}
+.bl-dots{display:inline-flex;gap:3px}
+.bl-dots i{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--muted);display:block}
+.bl-dots i.on{background:var(--green);border-color:var(--green)}
+.bl-pill.none{opacity:.5}
+.bl-pill.none b{text-decoration:line-through}
 :root{--bg:#F4F5F7;--surface:#FFFFFF;--ink:#0B1220;--muted:#667085;--line:#E4E7EC;--accent:#111827;--accent-ink:#FFFFFF;--shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.04);
   --green:#12805C;--green-bg:#E3F5EC;--red:#C2362B;--red-bg:#FDECEA;--blk:#1F2937;--blk-bg:#E9ECF1;--amber:#946200;--amber-bg:#FDF3DC;
   --zone-early:#BFE8D3;--zone-ok:#ECEFF3;--zone-late:#F7D1CC}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B0F17;--surface:#131A27;--ink:#E7EBF3;--muted:#95A1B5;--line:#242D3D;--accent:#F2F4F7;--accent-ink:#0B0F17;--shadow:none;
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B0F17;--surface:#131A27;--ink:#E7EBF3;--muted:#95A1B5;--line:#242D3D;--accent:#F2F4F7;--accent-ink:#0B0F17;--shadow:0 0 0 transparent;
   --green:#5FD3A0;--green-bg:#14301F;--red:#F38B80;--red-bg:#3A1C1A;--blk:#D3D9E4;--blk-bg:#232B3A;--amber:#EDB653;--amber-bg:#33270F;--zone-early:#1E4A36;--zone-ok:#222B3B;--zone-late:#4C2422}}
-:root[data-theme="dark"]{--bg:#0B0F17;--surface:#131A27;--ink:#E7EBF3;--muted:#95A1B5;--line:#242D3D;--accent:#F2F4F7;--accent-ink:#0B0F17;--shadow:none;
+:root[data-theme="dark"]{--bg:#0B0F17;--surface:#131A27;--ink:#E7EBF3;--muted:#95A1B5;--line:#242D3D;--accent:#F2F4F7;--accent-ink:#0B0F17;--shadow:0 0 0 transparent;
   --green:#5FD3A0;--green-bg:#14301F;--red:#F38B80;--red-bg:#3A1C1A;--blk:#D3D9E4;--blk-bg:#232B3A;--amber:#EDB653;--amber-bg:#33270F;--zone-early:#1E4A36;--zone-ok:#222B3B;--zone-late:#4C2422}
 body{font-size:14.5px;letter-spacing:-.003em}
 .shell{display:grid;grid-template-columns:252px minmax(0,1fr);min-height:100%}
@@ -352,6 +372,8 @@ body{font-size:14.5px;letter-spacing:-.003em}
 .rows tr.review td{background:var(--red-bg)}
 .alertbar.soft{background:var(--amber-bg);color:var(--amber);border-color:transparent}
 .pcard{border-radius:14px;border-left-width:1px;box-shadow:var(--shadow);padding:14px 16px}
+.pcard,.pcard.st-available,.pcard.st-break,.pcard.st-over,.pcard.st-busy{border-left:1px solid var(--line)}
+.pcard.st-over{border-color:transparent}
 .pcard.st-available{box-shadow:inset 3px 0 0 var(--green),var(--shadow)}
 .pcard.st-break{box-shadow:inset 3px 0 0 var(--amber),var(--shadow)}
 .pcard.st-over{box-shadow:inset 3px 0 0 var(--red),var(--shadow)}
@@ -371,7 +393,8 @@ body{font-size:14.5px;letter-spacing:-.003em}
   .sidebar .side::-webkit-scrollbar{display:none}
   .side-head{display:none}
   .side button{width:auto;white-space:nowrap}
-  .sb-foot{flex-direction:row;align-items:center;justify-content:space-between;padding-top:10px}
+  .sb-foot{flex-direction:row;align-items:center;justify-content:space-between;padding-top:10px;flex-wrap:wrap}
+  .sb-shift{flex:1 1 100%}
   .content{padding:18px 14px 40px}
   .hero{grid-template-columns:1fr;padding:20px}
 }
@@ -403,6 +426,7 @@ body{font-size:14.5px;letter-spacing:-.003em}
     <div class="sb-logo"><img class="logo" src="/logo.png" alt="Applied AI"><span>Opus Support<br>Attendance</span></div>
     <nav class="side" id="tabs" role="tablist" aria-label="Sections"></nav>
     <div class="sb-foot">
+      <div class="sb-shift" id="sbShift" hidden></div>
       <div class="sb-user" id="who"></div>
       <div class="sb-actions"><button class="btn small theme-btn" data-theme-toggle><span class="sw"></span><span class="tl">Night mode</span></button><button class="btn small" id="signout">Sign out</button></div>
     </div>

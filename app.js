@@ -182,6 +182,7 @@ async function loadMine(ym){
   for(const r of sc.data||[]) if(r.work_mode) mine.sched[`M|${r.employee_id}|${r.day}`] = r.work_mode;
   for(const r of ex.data||[]) mine.sched[`X|${r.employee_id}|${r.day}`] = r.reason || "";
   mine.adj = adj.data||[];
+  if(typeof paintSideShift==="function") paintSideShift();
 }
 async function loadTeam(ym){
   team.loading = true; update();
@@ -217,12 +218,14 @@ const ICONS = {
   schedule:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 14h3M13 14h3M8 17h3"/>',
   people:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
   audit:'<path d="M12 8v4l2.5 1.5"/><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/>',
+  issue:'<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17v.5"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'
 };
 function tabsFor(){
   const t = [];
   if(me?.tracked) t.push(["head","My work"],["checkin","Check in"],["breaks","Status"],["live","Live board"],["mine","My points"],["myschedule","My schedule"]);
   if(me?.is_admin){ t.push(["head","Manage"]); if(!me.tracked) t.push(["live","Live board"]); t.push(["team","Attendance today"],["points","Points report"],["schedule","Schedule"],["people","Employees"],["audit","Activity log"],["settings","Settings"]); }
+  if(me) t.push(["head","Help"],["issue","Report an issue"]);
   return t;
 }
 function renderTabs(){
@@ -236,8 +239,8 @@ const PAGES = {
   checkin:["Check in","Your shift today and this month so far."], breaks:["Status","Breaks, meetings and tasks. Someone always stays available."],
   live:["Live board","Who is available right now."], mine:["My points","Your points, history and streak."], myschedule:["My schedule","Your shifts and where you work."],
   team:["Attendance today","Check-ins, early leaves and overtime requests."], points:["Points report","Monthly points per agent."], schedule:["Schedule","Shifts, work location and excused days."],
-  people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."] };
-function setTab(t){ tab = t; renderTabs(); const p = PAGES[t] || ["",""]; $("#pgTitle").textContent = p[0]; $("#pgSub").textContent = p[1]; views[tab].mount($("#main")); window.scrollTo(0,0); }
+  people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."], issue:["Report an issue","Something not working? Tell the developer."] };
+function setTab(t){ tab = t; renderTabs(); paintSideShift(); const p = PAGES[t] || ["",""]; $("#pgTitle").textContent = p[0]; $("#pgSub").textContent = p[1]; views[tab].mount($("#main")); window.scrollTo(0,0); }
 function update(){ const v = views[tab]; if(v && v.update) v.update(); }
 
 /* ---------- live board & breaks ---------- */
@@ -265,6 +268,10 @@ async function refreshLive(){
 function breaksLeft(r){ return { short: Math.max(0, S.break_short_count - (r?.short_used||0)), long: Math.max(0, S.break_long_count - (r?.long_used||0)), wc: Math.max(0, S.break_wc_count - (r?.wc_used||0)) }; }
 const KIND_NAME = { meeting:"Meeting", task:"Task / Out of Q", wc:"WC break" };
 const breakName = r => KIND_NAME[r.break_kind] || `${r.break_allowed}-min break`;
+function breaksLeftHtml(left){
+  const pill = (label, n, total) => `<span class="bl-pill ${n?"":"none"}" title="${label}: ${n} of ${total} left"><b>${label}</b><span class="bl-dots">${Array.from({length:total},(_,i)=>`<i class="${i < n ? "on" : ""}"></i>`).join("")}</span></span>`;
+  return `<div class="bl"><span class="bl-h">Breaks left</span>${pill(`${S.break_short_min}m`, left.short, S.break_short_count)}${pill(`${S.break_long_min}m`, left.long, S.break_long_count)}${pill("WC", left.wc, S.break_wc_count)}</div>`;
+}
 const isAway = s => ["break","over","busy"].includes(s);
 function paintAlerts(){
   const bar = $("#alertbar"); if(!bar) return;
@@ -311,7 +318,7 @@ views.live = {
           ${st.s==="break"||st.s==="over" ? `<div class="pc-timer">${breakName(r)}, ${timerSpan(r)}</div>` : ""}
           ${st.s==="busy" ? `<div class="pc-timer">${breakName(r)} for ${timerSpan(r)}</div>` : ""}
           ${me.is_admin && r.check_out && !r.auto_out && (pHM(short(r.shift_end)) - mins(ts(r.check_out))) > S.early_leave_min ? `<div class="flag-red">Left early, ${fmtMin(pHM(short(r.shift_end)) - mins(ts(r.check_out)))} before ${short(r.shift_end)}</div>` : ""}
-          ${r.check_in && !r.check_out ? `<div class="small muted">Breaks left: ${left.short} × ${S.break_short_min} min, ${left.long} × ${S.break_long_min} min, ${left.wc} × WC</div>` : ""}
+          ${r.check_in && !r.check_out ? breaksLeftHtml(left) : ""}
         </div>`; }).join("")}</div>`;
     tickBreaks();
   }
@@ -405,6 +412,7 @@ views.checkin = {
           <div class="date">${esc(longDate(k))}</div>
           <div class="time" id="clk">--:--:--</div>
           <div class="hero-meta">${sf.off && !rec ? "" : `Shift ${esc(sh.start)} to ${esc(sh.end)} ${modeChip(rec ? rec.mode : sf.mode)}`}</div>
+          ${sf.off && !rec ? "" : `<div class="shiftcd" data-sstart="${start}" data-send="${end + (ot && ot.status==="approved" ? ot.minutes : 0)}"><div class="cd-row"><span class="cd-txt"></span><span class="cd-pct"></span></div><div class="cd-bar"><i></i></div></div>`}
         </div>
         <div class="hero-r"><div class="state">${state}</div><div class="hero-btn">${buttons}</div></div>
       </section>
@@ -448,7 +456,32 @@ views.checkin = {
     };
   }
 };
+function cdText(nowM, start, end){
+  const f = m => m >= 60 ? `${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m` : `${m} min`;
+  if(nowM < start) return { t:`Starts in ${f(start-nowM)}`, p:0 };
+  if(nowM >= end) return { t:"Shift ended", p:100 };
+  return { t:`${f(end-nowM)} left`, p:Math.round((nowM-start)/(end-start)*100) };
+}
+function tickShift(){
+  const nowM = mins(now());
+  document.querySelectorAll("[data-sstart]").forEach(el => {
+    const r = cdText(nowM, +el.dataset.sstart, +el.dataset.send);
+    const t = el.querySelector(".cd-txt"), p = el.querySelector(".cd-pct"), b = el.querySelector(".cd-bar i");
+    if(t) t.textContent = r.t; if(p) p.textContent = r.p > 0 && r.p < 100 ? `${r.p}% done` : ""; if(b) b.style.width = r.p + "%";
+  });
+}
+function paintSideShift(){
+  const el = $("#sbShift"); if(!el || !me || !me.tracked){ if(el) el.hidden = true; return; }
+  const k = dkey(now()), sf = shiftFor(me, k, mine.sched);
+  const rec = mine.att[`${me.id}|${k}`];
+  if((sf.off && !rec) || (rec && rec.check_out)){ el.hidden = true; return; }
+  const ot = (mine.ot||[]).find(o => o.day===k && o.status==="approved");
+  el.hidden = false;
+  el.innerHTML = `<div class="small muted">Today ${esc(sf.sh.start)} to ${esc(sf.sh.end)}</div><div class="shiftcd mini" data-sstart="${pHM(sf.sh.start)}" data-send="${pHM(sf.sh.end) + (ot ? ot.minutes : 0)}"><div class="cd-row"><span class="cd-txt"></span></div><div class="cd-bar"><i></i></div></div>`;
+  tickShift();
+}
 function tick(){
+  tickShift();
   const c = $("#clk"); if(!c) return;
   const p = parts(now());
   c.textContent = `${String(p.h).padStart(2,"0")}:${String(p.mi).padStart(2,"0")}:${String(p.s).padStart(2,"0")}`;
@@ -467,7 +500,7 @@ async function punch(kind, mode, btn, onError){
       ? await sb.rpc("check_in", { p_mode:mode, p_lat:lat, p_lng:lng })
       : await sb.rpc("check_out", { p_lat:lat, p_lng:lng });
     if(error) throw error;
-    mine.att[`${me.id}|${data.day}`] = data; refreshLive();
+    mine.att[`${me.id}|${data.day}`] = data; refreshLive(); paintSideShift();
     toast(kind==="in" ? `Checked in ${mode==="remote"?"remotely":"at the office"} at ${tstr(data.check_in)}` : `Checked out at ${tstr(data.check_out)}`);
     update(); return true;
   }catch(e){
@@ -944,6 +977,48 @@ document.querySelectorAll("[data-theme-toggle]").forEach(b => b.onclick = () => 
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintThemeButtons);
 paintThemeButtons();
+
+/* ---------- report an issue ---------- */
+const DEV_EMAIL = "ahmed.kamal@aaico.com";
+views.issue = {
+  async mount(el){
+    this.el = el;
+    el.innerHTML = `
+      <section class="panel">
+        <div class="grid">
+          <label class="f">What is it about?<select id="isCat"><option>Check in or check out</option><option>Breaks or status</option><option>Points or report</option><option>Schedule</option><option>Location or office distance</option><option>Sign in</option><option>Something else</option></select></label>
+          <label class="f">Where did it happen?<select id="isPage">${tabsFor().filter(x=>x[0]!=="head"&&x[0]!=="issue").map(x=>`<option>${esc(x[1])}</option>`).join("")}<option>Other</option></select></label>
+        </div>
+        <label class="f" style="margin-top:12px">Describe the problem<textarea id="isMsg" rows="6" maxlength="2000" placeholder="What did you do, what did you expect, and what happened instead? Include the time if you can."></textarea></label>
+        <div class="actions" style="justify-content:space-between;align-items:center">
+          <span class="small muted">Goes to the developer at <a href="mailto:${DEV_EMAIL}">${DEV_EMAIL}</a></span>
+          <button class="btn primary" id="isSend">Send to the developer</button>
+        </div>
+        <p class="hint">Your name, email, the time and your browser are added automatically. Your email app opens with the message ready; press send there. A copy is also saved in the system.</p>
+      </section>
+      <section class="panel"><h2>Your reports</h2><div id="isList"><p class="muted">Loading</p></div></section>`;
+    $("#isSend").onclick = () => this.send($("#isSend"));
+    this.list();
+  },
+  async list(){
+    const { data } = await sb.from("issues").select("*").eq("employee_id", me.id).order("created_at",{ascending:false}).limit(20);
+    if(tab!=="issue") return;
+    $("#isList").innerHTML = (data||[]).length ? data.map(r=>`<div class="item"><div><b>${esc(r.category)}</b> <span class="small muted">${esc(r.page||"")}</span><div class="small">${esc(r.message)}</div></div><span class="small muted nowrap">${esc(prettyDate(dkey(Date.parse(r.created_at))))}, ${tstr(r.created_at)}</span></div>`).join("") : `<p class="empty">No reports yet.</p>`;
+  },
+  async send(btn){
+    const msg = $("#isMsg").value.trim(), cat = $("#isCat").value, page = $("#isPage").value;
+    if(msg.length < 5){ toast("Describe the problem first."); return; }
+    btn.disabled = true;
+    const { error } = await sb.rpc("report_issue", { p_category:cat, p_message:msg, p_page:page, p_user_agent:navigator.userAgent });
+    btn.disabled = false;
+    if(error){ toast(errMsg(error)); return; }
+    const t = now(), email = (await sb.auth.getUser()).data.user?.email || "";
+    const body = `${msg}\n\n---\nFrom: ${me.name} (${email})\nRole: ${me.is_admin?"Manager":"Team member"}\nTopic: ${cat}\nPage: ${page}\nTime: ${longDate(dkey(t))}, ${tstr(new Date(t).toISOString())} UAE\nBrowser: ${navigator.userAgent}`;
+    location.href = `mailto:${DEV_EMAIL}?subject=${encodeURIComponent(`[Opus Attendance] ${cat}`)}&body=${encodeURIComponent(body)}`;
+    toast("Saved. Your email app is opening.");
+    $("#isMsg").value = ""; this.list();
+  }
+};
 
 /* ---------- auth ---------- */
 function showLogin(msg){
