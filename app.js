@@ -263,7 +263,7 @@ const ICONS = {
 function tabsFor(){
   const t = [];
   if(me?.tracked) t.push(["head","My work"],["checkin","Check in"],["breaks","Status"],["live","Live board"],["mine","My points"],["myschedule","My schedule"]);
-  if(me?.is_admin){ t.push(["head","Manage"]); if(!me.tracked) t.push(["live","Live board"]); t.push(["team","Attendance today"],["points","Points report"],["schedule","Schedule"],["people","Employees"],["audit","Activity log"]); }
+  if(me?.is_admin){ t.push(["head","Manage"]); if(!me.tracked) t.push(["live","Live board"]); t.push(["team","Attendance today"],["points","Reports"],["schedule","Schedule"],["people","Employees"],["audit","Activity log"]); }
   if(me) t.push(["head","Account"], ...(me.scheduled && !me.tracked ? [["myschedule","My schedule"]] : []), ["profile","Settings"],["guide","How it works"],["help","Help"]);
   return t;
 }
@@ -277,7 +277,7 @@ function renderTabs(){
 const PAGES = {
   checkin:["Check in","Your shift today and this month so far."], breaks:["Status","Breaks, meetings and tasks. Someone always stays available."],
   live:["Live board","Who is available right now."], mine:["My points","Your points, history and streak."], myschedule:["My schedule","Your shifts and where you work."],
-  team:["Attendance today","Check-ins, early leaves and overtime requests."], points:["Points report","Monthly points per agent."], schedule:["Schedule","Shifts, work location and excused days."],
+  team:["Attendance today","Check-ins, early leaves and overtime requests."], points:["Reports","Points, adherence and the full Excel report."], schedule:["Schedule","Shifts, work location and excused days."],
   people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."], profile:["Settings","Your account and the team rules."], guide:["How it works","The short version of how everything works."], help:["Help","Something not working? Tell the developer."] };
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 function replay(el, cls){ if(!el || reduceMotion()) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
@@ -723,20 +723,6 @@ views.points = {
   },
 
 };
-
-/* ---------- excuse dialog ---------- */
-function excuseDialog({ name, days, current, onSave, onRemove }){
-  const dlg = $("#exDlg");
-  $("#exTitle").textContent = `${LEAVE[arguments[0].type||"excused"][0]}: ${name}`;
-  $("#exWhen").textContent = days.length === 1 ? longDate(days[0]) : `${days.length} working days, ${prettyDate(days[0])} to ${prettyDate(days[days.length-1])}`;
-  $("#exReason").value = current || ""; $("#exErr").textContent = "";
-  $("#exRemove").hidden = !onRemove || current === undefined;
-  $("#exSave").textContent = current !== undefined ? "Update reason" : "Mark excused";
-  const run = async fn => { $("#exSave").disabled = $("#exRemove").disabled = true; try{ await fn(); dlg.close(); }catch(e){ $("#exErr").textContent = errMsg(e); } $("#exSave").disabled = $("#exRemove").disabled = false; };
-  $("#exSave").onclick = () => run(() => onSave($("#exReason").value.trim()));
-  $("#exRemove").onclick = () => run(onRemove);
-  dlg.showModal();
-}
 
 /* ---------- admin: activity log ---------- */
 views.audit = {
@@ -1525,8 +1511,8 @@ views.guide = {
       <div class="tcs">
         ${topic("schedule","Schedule rules",[`${R.min_senior_office} senior in the office daily (${esc(seniors)})`,`Never remote together: ${esc(pairs)}`,R.night_needs_morning_office?"Morning shift (08 or 09): at least 1 in the office daily":"Morning office rule off",R.no_consecutive_remote?"No remote days in a row (Fri then Mon counts)":"Back-to-back remote allowed"])}
         ${topic("checkin","Editing days",["Click a day; Shift-click for a range","Ctrl or ⌘-click adds days","Weekly plan replaces day edits in its dates"])}
-        ${topic("people","Access",["<b>Full access</b>: seniors, supervisors, managers, heads","<b>Member access</b>: agents","Seniors and supervisors are in the schedule only"])}
-        ${topic("live","Daily",["Live board: who is available","Attendance today: approve overtime","Points report: adjust with a reason, download the full Excel report"])}
+        ${topic("people","Access",["<b>Full access</b>: seniors, supervisors, managers, heads","<b>Member access</b>: agents","Seniors and supervisors are in the schedule only","Add people or change roles in Employees"])}
+        ${topic("live","Daily",["Live board: who is available","Attendance today: approve overtime","Activity log: every change, by whom and when","Reports: adjust with a reason, download the full Excel report"])}
         ${topic("settings","Rules",["Settings → Team rules holds every number","This guide updates itself from it"])}
       </div>` : "";
     el.innerHTML = `

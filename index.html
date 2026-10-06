@@ -73,11 +73,9 @@ h2{font-size:15px;font-weight:600;margin:0 0 10px}
 .c-ontime{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
 .c-late{background:var(--red-bg);color:var(--red)}
 .c-absent{background:var(--blk-bg);color:var(--blk)}
-.c-leave,.c-pending{background:var(--amber-bg);color:var(--amber)}
+.c-pending{background:var(--amber-bg);color:var(--amber)}
 .c-remote{background:var(--bg);color:var(--accent);border:1px solid var(--line)}
-.c-off,.c-future,.c-na{background:transparent;color:var(--muted);border:1px dashed var(--line)}
-.c-approved{background:var(--green-bg);color:var(--green)}
-.c-rejected{background:var(--red-bg);color:var(--red)}
+.c-off,.c-na{background:transparent;color:var(--muted);border:1px dashed var(--line)}
 .rows{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
 .rows th{font-weight:500;font-size:12.5px;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
 .rows td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
@@ -100,7 +98,6 @@ label.chk{display:flex;align-items:center;gap:8px;font-size:14px}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw}
 #toast.show{opacity:1}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
-textarea.csv{width:100%;min-height:140px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
 </style>
 <style>
 [hidden]{display:none!important}
@@ -260,7 +257,6 @@ img.av{object-fit:cover;padding:0;background:var(--bg)}
 .pf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
 .pf-grid div{display:flex;flex-direction:column;gap:2px}
 .pf-grid span{font-size:12px;color:var(--muted)}
-.pf-sec{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:24px 0 10px;font-weight:600}
 .t-adh{border-radius:12px;padding:12px 14px;background:var(--bg);border:1px solid var(--line)}
 .t-adh .l{font-size:12.5px;color:var(--muted)}
 .t-adh.good .n,.adh.good{color:var(--green)}
@@ -525,33 +521,7 @@ body{font-size:14.5px;letter-spacing:-.003em}
 
 
 /* ===== Guide ===== */
-.gd-hero h2{margin-bottom:14px}
-.gd-steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
-.gd-steps li{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
-.gd-steps p{margin:2px 0 0;font-size:13px;color:var(--muted);line-height:1.45}
-.gd-n{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:13px}
-.gd-search{margin-top:14px}.gd-search .inl{width:100%}
-.gd{background:var(--surface);border:1px solid var(--line);border-radius:14px;margin-bottom:10px;box-shadow:var(--shadow);overflow:hidden}
-.gd summary{list-style:none;display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;font-weight:600}
-.gd summary::-webkit-details-marker{display:none}
-.gd-i{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--bg);border:1px solid var(--line);flex:none}
-.gd-i svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.gd-t{flex:1}
-.gd-c{width:10px;height:10px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);transition:transform .2s}
-.gd[open] .gd-c{transform:rotate(225deg)}
-.gd-b{padding:0 18px 16px}
-.gd[open] .gd-b{animation:pgIn .25s ease}
-.gd-b p{margin:0 0 10px;color:var(--ink)}
-.gd-rows{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.gd-r{display:grid;grid-template-columns:200px 1fr;gap:12px;padding:10px 14px;border-top:1px solid var(--line);font-size:13.5px;line-height:1.5}
-.gd-r:first-child{border-top:0}
-.gd-r b{font-weight:600}
-.gd-r span{color:var(--ink)}
-.gd-ex{margin-top:12px;padding:12px 14px;border-radius:10px;background:var(--bg);border:1px dashed var(--line);font-size:13.5px}
 @media (max-width:640px){.gd-r{grid-template-columns:1fr;gap:2px}}
-:root[data-theme="dark"] .gd,:root[data-theme="dark"] .gd-steps li{background:var(--surface)} 
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .gd-steps li{background:var(--surface2)}}
-:root[data-theme="dark"] .gd-steps li{background:var(--surface2)}
 /* ===== Schedule rules ===== */
 .score{font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:999px}
 .score.ok{background:var(--green-bg);color:var(--green)}.score.mid{background:var(--amber-bg);color:var(--amber)}.score.bad{background:var(--red-bg);color:var(--red)}
@@ -567,7 +537,6 @@ body{font-size:14.5px;letter-spacing:-.003em}
 .mo-h.bad b{color:var(--red)}
 .mo-h.bad::after{content:"";display:block;width:5px;height:5px;border-radius:50%;background:var(--red);margin:2px auto 0}
 .pc-title{font-size:12px;font-weight:600;color:var(--muted);margin:-2px 0 2px 40px}
-.sr-tag{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;border-radius:5px;background:var(--blk-bg);color:var(--ink);margin-left:2px;vertical-align:1px}
 .stack-12{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 /* ===== Weekly plan & employees ===== */
 .plan-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
@@ -601,15 +570,6 @@ body{font-size:14.5px;letter-spacing:-.003em}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pl-d.rem{background:var(--accent);color:var(--accent-ink)}}
 /* ===== Settings tabs & guide v2 ===== */
 .set-tabs{margin-bottom:14px}
-.gd-search{margin:0 0 14px}
-.gcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.gc{display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg)}
-.gc-big{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
-.gc b{font-size:13.5px}.gc span{font-size:12.5px;color:var(--muted);line-height:1.4}
-.gc.g-ok .gc-big{color:var(--muted)}.gc.g-mid .gc-big{color:var(--amber)}.gc.g-red .gc-big{color:var(--red)}.gc.g-blk .gc-big{color:var(--blk)}.gc.g-green .gc-big{color:var(--green)}
-.gd-ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px;line-height:1.5;font-size:14px}
-:root[data-theme="dark"] .gc{background:var(--surface2)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .gc{background:var(--surface2)}}
 /* ===== Guide v3 ===== */
 .g-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
 .g-top .inl{flex:1;min-width:220px}
@@ -705,15 +665,6 @@ html.theme-anim,html.theme-anim *,html.theme-anim *::before,html.theme-anim *::a
     <main id="main"></main>
   </div>
 </div>
-<dialog id="exDlg" class="dlg" aria-labelledby="exTitle">
-  <form method="dialog" class="dlg-x"><button class="btn small" aria-label="Close">Close</button></form>
-  <h2 id="exTitle">Excuse</h2>
-  <p class="small muted" id="exWhen" style="margin:-8px 0 14px"></p>
-  <label class="f">Reason (optional)<input id="exReason" maxlength="120" placeholder="Example: doctor appointment, approved leave"></label>
-  <p class="hint">Excused days get no late, absent or black points, and do not break the on-time streak.</p>
-  <div class="actions"><button class="btn no" id="exRemove" hidden>Remove excuse</button><button class="btn primary" id="exSave">Mark excused</button></div>
-  <p class="err" id="exErr" role="alert"></p>
-</dialog>
 <div id="dayEd" class="dayed" role="dialog" aria-label="Edit day" hidden></div>
 <dialog id="ruleDlg" class="dlg" aria-labelledby="rdTitle">
   <h2 id="rdTitle">This change breaks a schedule rule</h2>
