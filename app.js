@@ -254,6 +254,7 @@ const ICONS = {
   schedule:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 14h3M13 14h3M8 17h3"/>',
   people:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
   audit:'<path d="M12 8v4l2.5 1.5"/><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/>',
+  guide:'<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M8 8h8M8 12h5"/>',
   profile:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/><path d="M18.5 4.5l1 1M19.5 4.5l-1 1"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'
 };
@@ -261,7 +262,7 @@ function tabsFor(){
   const t = [];
   if(me?.tracked) t.push(["head","My work"],["checkin","Check in"],["breaks","Status"],["live","Live board"],["mine","My points"],["myschedule","My schedule"]);
   if(me?.is_admin){ t.push(["head","Manage"]); if(!me.tracked) t.push(["live","Live board"]); t.push(["team","Attendance today"],["points","Points report"],["schedule","Schedule"],["people","Employees"],["audit","Activity log"],["settings","Settings"]); }
-  if(me) t.push(["head","Account"],["profile","My settings"]);
+  if(me) t.push(["head","Account"],["profile","My settings"],["guide","How it works"]);
   return t;
 }
 function renderTabs(){
@@ -275,7 +276,7 @@ const PAGES = {
   checkin:["Check in","Your shift today and this month so far."], breaks:["Status","Breaks, meetings and tasks. Someone always stays available."],
   live:["Live board","Who is available right now."], mine:["My points","Your points, history and streak."], myschedule:["My schedule","Your shifts and where you work."],
   team:["Attendance today","Check-ins, early leaves and overtime requests."], points:["Points report","Monthly points per agent."], schedule:["Schedule","Shifts, work location and excused days."],
-  people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."], profile:["My settings","Your photo, appearance and help."] };
+  people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."], profile:["My settings","Your photo, appearance and help."], guide:["How it works","Everything about check-in, breaks and points, in one place."] };
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 function replay(el, cls){ if(!el || reduceMotion()) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 function countUp(root){
@@ -1126,6 +1127,80 @@ function toggleTheme(){
 document.querySelectorAll("[data-theme-toggle]").forEach(b => b.onclick = toggleTheme);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintThemeButtons);
 paintThemeButtons();
+
+/* ---------- how it works ---------- */
+views.guide = {
+  mount(el){
+    const sh = Object.keys(shifts).map(id => `${shifts[id].start} to ${shifts[id].end}`).join(", ");
+    const g = S.grace_min, open = S.checkin_open_min, ex = S.early_max, em = S.early_min;
+    const sec = (id, icon, title, body, open1) => `<details class="gd" id="g-${id}" ${open1?"open":""}><summary><span class="gd-i"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></span><span class="gd-t">${title}</span><span class="gd-c" aria-hidden="true"></span></summary><div class="gd-b">${body}</div></details>`;
+    const rows = r => `<div class="gd-rows">${r.map(([k,v])=>`<div class="gd-r"><b>${k}</b><span>${v}</span></div>`).join("")}</div>`;
+    const steps = [[`Check in`,`When your shift starts, open <b>Check in</b> and press the button. Your schedule decides if today is an office or a remote day.`],
+                   [`Set your status`,`Going on a break, into a meeting or a task? Use <b>Status</b>. Press <b>Back to available</b> when you return.`],
+                   [`Check out`,`Press <b>Check out</b> at the end. If you forget, it happens automatically 1 minute after your shift ends.`],
+                   [`Follow your month`,`<b>My points</b> shows your points, adherence and streak. <b>My schedule</b> shows your shifts.`]];
+    el.innerHTML = `
+      <section class="panel gd-hero">
+        <h2>Your day in four steps</h2>
+        <ol class="gd-steps">${steps.map(([t,d],i)=>`<li><span class="gd-n">${i+1}</span><div><b>${t}</b><p>${d}</p></div></li>`).join("")}</ol>
+        <div class="gd-search"><input class="inl" id="gdQ" placeholder="Search the guide, for example: late, WC, overtime"></div>
+      </section>
+      <div id="gdList">
+      ${sec("checkin", ICONS.checkin, "Checking in", `
+        <p>Check-in opens <b>${open} minutes</b> before your shift. Shifts are ${sh}. The time always comes from the server, not your phone.</p>
+        ${rows([[`Office day`,`You must be within <b>${S.radius_m} m</b> of the office. Your phone asks for your location once. Only the distance is saved, never where you are.`],
+                [`Remote day`,`No location needed. Check in from anywhere.`],
+                [`Who decides`,`Your manager sets office or remote days in the schedule. You cannot change it yourself.`],
+                [`Day off`,`Check-in is closed on days off and after your shift has ended.`]])}`, true)}
+      ${sec("time", ICONS.checkin, "On time, grace and late", `
+        ${rows([[`On time`,`Checked in at or before your shift start.`],
+                [`Grace`,`Up to <b>${g} minutes</b> after start. Shown as late within grace, with no points.`],
+                [`Late`,`More than ${g} minutes after start. The first <b>${S.late_allowance}</b> late days each month (up to ${S.late_hard_min} min) are allowed with no points.`],
+                [`Very late`,`More than <b>${S.late_hard_min} minutes</b> is always <span class="lv-tag lv-sick">+1 red</span>. More than <b>${fmtMin(S.late_black_min)}</b> is <span class="lv-tag lv-unpaid">+1 black</span>.`],
+                [`Absent`,`A working day with no check-in is <span class="lv-tag lv-unpaid">+1 black</span>.`]])}`)}
+      ${sec("points", ICONS.points, "How points work", `
+        ${rows([[`Early credit`,`Office check-in between ${ex} and ${em} minutes before your shift. Every <b>${S.early_per_clear}</b> credits clear 1 red, up to <b>${S.max_clears}</b> times a month.`],
+                [`Red`,`Late beyond your allowance, or more than ${S.late_hard_min} minutes late.`],
+                [`Black`,`Absent, or more than ${fmtMin(S.late_black_min)} late.`],
+                [`Total penalties`,`Red plus black. At <b>${S.review_threshold}</b> or more in a month, your manager reviews it with you.`],
+                [`Reset`,`Everything starts again on the <b>1st of every month</b>.`]])}
+        <div class="gd-ex"><b>Example.</b> You are late 5 times this month (all under ${S.late_hard_min} min) and early 9 times. The first ${S.late_allowance} lates are allowed, so 3 become red. Nine credits could clear 3 reds, but the limit is ${S.max_clears} a month. Result: <b>1 red</b>.</div>`)}
+      ${sec("status", ICONS.breaks, "Breaks, meetings and tasks", `
+        ${rows([[`Breaks per shift`,`${S.break_short_count} × ${S.break_short_min} min, ${S.break_long_count} × ${S.break_long_min} min, ${S.break_wc_count} × ${S.break_wc_min} min WC. Any order.`],
+                [`When`,`Not in the first or last <b>${S.break_edge_min} minutes</b> of your shift.`],
+                [`Coverage`,`At least <b>${S.min_available}</b> teammate must stay available. If you are the last one, wait until someone is back. This applies to every status.`],
+                [`Meeting, Task / Out of Q`,`No time limit and do not use your breaks. The timer counts up.`],
+                [`Over break`,`The timer turns red when you go over. After ${S.break_alert_after_min} minutes over, you and your managers see a red banner.`]])}`)}
+      ${sec("end", ICONS.team, "End of day and overtime", `
+        ${rows([[`Check out`,`Press Check out when your shift ends.`],
+                [`Automatic check-out`,`1 minute after your shift ends, if you forgot. Marked Auto.`],
+                [`Overtime`,`Need to stay longer? Use <b>Extend shift</b> on the Check in page before your shift ends. A manager approves or rejects it.`],
+                [`Leaving early`,`Checking out more than ${S.early_leave_min} minutes early is recorded for your manager.`]])}`)}
+      ${sec("schedule", ICONS.schedule, "Schedule and leave", `
+        <p>Your manager sets your shifts, office or remote days, and leave in the schedule. You see it in <b>My schedule</b>.</p>
+        ${rows(LEAVE_ORDER.map(t=>[`<span class="lv-tag lv-${t}">${LEAVE[t][1]}</span> ${LEAVE[t][0]}`, `No late, absent or black points that day, and it does not break your streak.`]))}`)}
+      ${sec("adherence", ICONS.mine, "Adherence and streak", `
+        ${rows([[`Adherence`,`The share of your scheduled time you were on schedule. Late minutes, leaving early, absences and minutes over a break count against it. Meetings and tasks count as on schedule. Target: <b>${S.adherence_target}%</b>.`],
+                [`On-time streak`,`Working days in a row with no late minute. <b>10 days</b> (two full weeks) earns the 2-week streak mark. Days off and leave do not break it.`]])}`)}
+      ${sec("privacy", ICONS.profile, "What others can see", `
+        ${rows([[`Your team`,`On the Live board: your name, photo, shift, current status and breaks left.`],
+                [`Only managers`,`Check-in times, office or remote, distance from the office, points, adherence and early leaves.`],
+                [`Activity log`,`Every change a manager makes to schedules, leave or points is recorded with their name and the time.`]])}`)}
+      ${me.is_admin ? sec("managers", ICONS.settings, "For managers", `
+        ${rows([[`Schedule`,`Click a day in Month overview to change the shift, office or remote, or set leave. Shift-click selects a range across agents.`],
+                [`Points report`,`Monthly points, adherence and leave per agent. Adjust red or black with a reason. Export CSV.`],
+                [`Attendance today`,`Approve or reject overtime and see early leaves.`],
+                [`Settings`,`Every rule on this page comes from Settings, so this guide updates itself when you change them.`]])}`) : ""}
+      ${sec("faq", ICONS.audit, "Common questions", `
+        ${rows([[`Location will not work`,`Allow location for this site in your browser, then try again. Still failing? Report it from My settings.`],
+                [`I forgot to check out`,`Nothing to do. You are checked out automatically 1 minute after your shift.`],
+                [`Something looks wrong`,`Open <b>My settings</b> and use <b>Report a problem</b>. It goes to the developer with the details filled in.`]])}`)}
+      </div>
+      <p class="hint">The numbers on this page come from the current settings, so they are always up to date.</p>`;
+    $("#gdQ").oninput = e => { const q = e.target.value.trim().toLowerCase();
+      document.querySelectorAll(".gd").forEach(d => { const hit = !q || d.textContent.toLowerCase().includes(q); d.hidden = !hit; if(q && hit) d.open = true; }); };
+  }
+};
 
 /* ---------- report an issue ---------- */
 const DEV_EMAIL = "ahmed.kamal@aaico.com";
