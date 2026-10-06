@@ -257,13 +257,14 @@ const ICONS = {
   audit:'<path d="M12 8v4l2.5 1.5"/><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/>',
   guide:'<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M8 8h8M8 12h5"/>',
   profile:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/><path d="M18.5 4.5l1 1M19.5 4.5l-1 1"/>',
+  help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17v.5"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'
 };
 function tabsFor(){
   const t = [];
   if(me?.tracked) t.push(["head","My work"],["checkin","Check in"],["breaks","Status"],["live","Live board"],["mine","My points"],["myschedule","My schedule"]);
   if(me?.is_admin){ t.push(["head","Manage"]); if(!me.tracked) t.push(["live","Live board"]); t.push(["team","Attendance today"],["points","Points report"],["schedule","Schedule"],["people","Employees"],["audit","Activity log"]); }
-  if(me) t.push(["head","Account"], ...(me.scheduled && !me.tracked ? [["myschedule","My schedule"]] : []), ["profile","Settings"],["guide","How it works"]);
+  if(me) t.push(["head","Account"], ...(me.scheduled && !me.tracked ? [["myschedule","My schedule"]] : []), ["profile","Settings"],["guide","How it works"],["help","Help"]);
   return t;
 }
 function renderTabs(){
@@ -277,7 +278,7 @@ const PAGES = {
   checkin:["Check in","Your shift today and this month so far."], breaks:["Status","Breaks, meetings and tasks. Someone always stays available."],
   live:["Live board","Who is available right now."], mine:["My points","Your points, history and streak."], myschedule:["My schedule","Your shifts and where you work."],
   team:["Attendance today","Check-ins, early leaves and overtime requests."], points:["Points report","Monthly points per agent."], schedule:["Schedule","Shifts, work location and excused days."],
-  people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."], profile:["Settings","Your account, team rules and help, in one place."], guide:["How it works","Everything about check-in, breaks and points, in one place."] };
+  people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."], profile:["Settings","Your account and the team rules."], guide:["How it works","The short version of how everything works."], help:["Help","Something not working? Tell the developer."] };
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 function replay(el, cls){ if(!el || reduceMotion()) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 function countUp(root){
@@ -773,7 +774,7 @@ views.audit = {
 
 /* ---------- schedule rules ---------- */
 const RULES = () => ({ min_senior_office:1, night_needs_morning_office:true, no_consecutive_remote:true, remote_pairs:[], ...(S.rules||{}) });
-const roleLabel = e => e?.title || (e?.is_admin ? "Manager" : "Team member");
+const roleLabel = e => e?.title || (e?.is_admin ? "Full access" : "Member access");
 const enameOf = id => emps.find(e=>e.id===id)?.name || "";
 function dayPlan(sm, e, k){
   if(e.since && k < e.since) return null;
@@ -886,7 +887,7 @@ views.schedule = {
     }
     return plan;
   },
-  planRange(){ const a = `${this.ym}-01`, b = monthEnd(this.ym), t = dkey(now()); return this.fromToday && t > a && t <= b ? [t, b] : [a, b]; },
+  planRange(){ const a = `${this.ym}-01`, b = monthEnd(this.ym); if(!this.range || this.range.ym !== this.ym) this.range = { ym:this.ym, from:a, to:b }; return [this.range.from, this.range.to]; },
   planChanges(){
     const [a, b] = this.planRange(), out = [];
     for(const [eid, p] of Object.entries(this.plan)) for(const k of monthKeys(this.ym)){
@@ -907,7 +908,7 @@ views.schedule = {
     const [a, b] = this.planRange();
     $("#scEdit").innerHTML = `
       <div class="plan-top">
-        <div class="seg" id="plRange"><button type="button" class="seg-b ${this.fromToday?"":"on"}" data-v="all">Whole month</button><button type="button" class="seg-b ${this.fromToday?"on":""}" data-v="today">From today</button></div>
+        <div class="pl-dates"><label class="f">From<input type="date" class="inl" id="plFrom" value="${a}" min="${this.ym}-01" max="${monthEnd(this.ym)}"></label><label class="f">To<input type="date" class="inl" id="plTo" value="${b}" min="${this.ym}-01" max="${monthEnd(this.ym)}"></label></div>
         <span class="score ${chk.issues.length ? "bad" : "ok"}">${chk.issues.length ? `${seen.size} rule problem${seen.size>1?"s":""} in this plan` : "This plan passes every rule"}</span>
       </div>
       <div class="scroll"><table class="plan-t"><thead><tr><th>Person</th><th>Shift</th>${dows.map(d=>`<th class="${badW.has(d)?"bad":""}">${DN[d]}</th>`).join("")}</tr></thead><tbody>
@@ -921,7 +922,8 @@ views.schedule = {
         <span class="small muted">Applies to ${esc(prettyDate(a))} to ${esc(prettyDate(b))}. Leave days stay as they are. Click a weekday to switch Office and Remote.</span>
         <span style="display:flex;gap:8px">${seen.size ? `<button class="btn no" id="plAnyway">Apply anyway</button>` : ""}<button class="btn primary" id="plApply" ${seen.size?"disabled":""}>Apply plan</button></span>
       </div>`;
-    $("#plRange").querySelectorAll(".seg-b").forEach(x => x.onclick = () => { this.fromToday = x.dataset.v==="today"; this.renderPlan(); });
+    const setR = () => { const f = $("#plFrom").value, t = $("#plTo").value; if(!f || !t || t < f){ toast("Pick a valid date range."); return; } this.range = { ym:this.ym, from:f, to:t }; this.renderPlan(); };
+    $("#plFrom").onchange = setR; $("#plTo").onchange = setR;
     $("#scEdit").querySelectorAll("tr[data-e]").forEach(tr => {
       const p = this.plan[tr.dataset.e];
       tr.querySelector(".pl-sh").onchange = ev => { p.shift = ev.target.value; this.renderPlan(); };
@@ -1134,21 +1136,21 @@ views.myschedule = {
 
 /* ---------- admin: employees ---------- */
 const EMP_TYPES = {
-  agent:      { label:"Agent", note:"Checks in, takes breaks, earns points. In the schedule.", f:{ tracked:true, scheduled:true, is_admin:false, senior:false } },
-  senior:     { label:"Senior", note:"Manager. In the schedule and counts for senior office cover. No check-in or breaks.", f:{ tracked:false, scheduled:true, is_admin:true, senior:true } },
-  supervisor: { label:"Supervisor", note:"Manager. In the schedule. No check-in or breaks.", f:{ tracked:false, scheduled:true, is_admin:true, senior:false } },
-  manager:    { label:"Manager only", note:"Manager tabs only. Not in the schedule.", f:{ tracked:false, scheduled:false, is_admin:true, senior:false } }
+  agent:      { label:"Agent", note:"Member access. Checks in, takes breaks, earns points. In the schedule.", f:{ tracked:true, scheduled:true, is_admin:false, senior:false } },
+  senior:     { label:"Senior", note:"Full access. In the schedule and counts for senior office cover. No check-in or breaks.", f:{ tracked:false, scheduled:true, is_admin:true, senior:true } },
+  supervisor: { label:"Supervisor", note:"Full access. In the schedule. No check-in or breaks.", f:{ tracked:false, scheduled:true, is_admin:true, senior:false } },
+  manager:    { label:"Manager / Head", note:"Full access. Not in the schedule.", f:{ tracked:false, scheduled:false, is_admin:true, senior:false } }
 };
 const empType = e => e.tracked ? "agent" : e.scheduled ? (e.senior ? "senior" : "supervisor") : "manager";
 views.people = {
   mount(el){ this.el = el; this.q = ""; this.render(); },
   render(){
-    const groups = [["Agents", e => e.active && empType(e)==="agent"], ["Seniors and supervisors", e => e.active && ["senior","supervisor"].includes(empType(e))], ["Managers", e => e.active && empType(e)==="manager"], ["Inactive", e => !e.active]];
+    const groups = [["Agents", e => e.active && empType(e)==="agent"], ["Seniors and supervisors", e => e.active && ["senior","supervisor"].includes(empType(e))], ["Managers and heads", e => e.active && empType(e)==="manager"], ["Inactive", e => !e.active]];
     const match = e => !this.q || `${e.name} ${e.title||""} ${e.email||""}`.toLowerCase().includes(this.q);
     const row = e => `<button class="emp-row" data-id="${e.id}">
         ${avatar(e.name, e.id)}
         <span class="emp-main"><b>${esc(e.name)}</b><span class="small muted">${esc(e.title || EMP_TYPES[empType(e)].label)}</span></span>
-        <span class="emp-meta">${e.scheduled || e.tracked ? `<span class="chip c-ontime">${esc(shifts[e.shift_id] ? `${shifts[e.shift_id].start}–${shifts[e.shift_id].end}` : "")}</span>${e.default_mode==="remote" ? '<span class="chip c-remote">Remote</span>' : ""}` : ""}${e.senior ? '<span class="chip c-ontime">Senior</span>' : ""}${e.is_admin ? '<span class="chip c-ontime">Manager</span>' : ""}</span>
+        <span class="emp-meta">${e.scheduled || e.tracked ? `<span class="chip c-ontime">${esc(shifts[e.shift_id] ? `${shifts[e.shift_id].start}–${shifts[e.shift_id].end}` : "")}</span>${e.default_mode==="remote" ? '<span class="chip c-remote">Remote</span>' : ""}` : ""}${e.senior ? '<span class="chip c-ontime">Senior</span>' : ""}${e.is_admin ? '<span class="chip c-ontime acc-full">Full access</span>' : '<span class="chip c-ontime">Member access</span>'}</span>
         <span class="emp-mail small ${e.email ? "muted" : "warn"}">${esc(e.email || "No email yet")}</span>
         <span class="emp-go" aria-hidden="true">Edit</span>
       </button>`;
@@ -1323,100 +1325,51 @@ views.guide = {
     const R = RULES(), sh = Object.keys(shifts).map(id => `${shifts[id].start}–${shifts[id].end}`).join(", ");
     const seniors = schedPeople().filter(e=>e.senior).map(e=>e.name.split(" ")[0]).join(", ") || "none set";
     const pairs = (R.remote_pairs||[]).map(([a,b])=>`${enameOf(a).split(" ")[0]} and ${enameOf(b).split(" ")[0]}`).join("; ") || "none";
-    const card = (tone, big, title, text) => `<div class="gc ${tone}"><div class="gc-big">${big}</div><b>${title}</b><span>${text}</span></div>`;
-    const sec = (id, icon, title, items) => `<details class="gd" id="g-${id}"><summary><span class="gd-i"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></span><span class="gd-t">${title}</span><span class="gd-c" aria-hidden="true"></span></summary><div class="gd-b"><ul class="gd-ul">${items.map(x=>`<li>${x}</li>`).join("")}</ul></div></details>`;
-    const steps = (list) => `<ol class="gd-steps">${list.map(([t,d],i)=>`<li><span class="gd-n">${i+1}</span><div><b>${t}</b><p>${d}</p></div></li>`).join("")}</ol>`;
+    const icon = k => `<span class="tc-i"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg></span>`;
+    const topic = (ic, title, lines) => `<article class="tc">${icon(ic)}<h3>${title}</h3><ul>${lines.map(x=>`<li>${x}</li>`).join("")}</ul></article>`;
+    const flow = list => `<div class="flow">${list.map(([t,d],i)=>`<div class="fl"><span class="fl-n">${i+1}</span><b>${t}</b><span>${d}</span></div>`).join("")}</div>`;
+    const pts = [["0","On time","By shift start","ok"],[S.late_allowance+" free","Late",`Up to ${S.late_hard_min} min, per month`,"mid"],["+1","Red",`Late after that, or over ${S.late_hard_min} min`,"red"],["+1","Black",`Absent, or over ${fmtMin(S.late_black_min)}`,"blk"],["−1 red","Early credit",`${S.early_per_clear} office early days, max ${S.max_clears}/month`,"green"]];
     const everyone = `
-      <section class="panel"><h2>Your day</h2>${steps([
-        ["Check in", `Opens ${S.checkin_open_min} min before your shift. Office or remote comes from your schedule.`],
-        ["Set your status", "Breaks, meetings and tasks are in <b>Status</b>. Press <b>Back to available</b> after."],
-        ["Check out", "At the end of your shift. If you forget, it happens 1 minute after."],
-        ["Check your month", "<b>My points</b> and <b>My schedule</b> show where you stand."]])}</section>
-      <section class="panel"><h2>Points at a glance</h2><div class="gcards">
-        ${card("g-ok","0","On time","Checked in by your shift start.")}
-        ${card("g-mid", S.late_allowance, "Late, allowed", `Up to ${S.late_hard_min} min late. ${S.late_allowance} a month carry no points. ${S.grace_min} min grace first.`)}
-        ${card("g-red","+1","Red", `Late after your allowance, or more than ${S.late_hard_min} min late.`)}
-        ${card("g-blk","+1","Black", `Absent, or more than ${fmtMin(S.late_black_min)} late.`)}
-        ${card("g-green","−1","Early credit", `Office check-in ${S.early_max} to ${S.early_min} min early. ${S.early_per_clear} credits clear 1 red, up to ${S.max_clears} a month.`)}
-      </div><p class="hint">Everything resets on the 1st. ${S.review_threshold} or more penalties in a month means a review with your manager.</p></section>
-      ${sec("checkin", ICONS.checkin, "Checking in", [
-        `Shifts: ${sh}. Time comes from the server, not your phone.`,
-        `Office day: be within ${S.radius_m} m of the office. Only the distance is saved.`,
-        "Remote day: no location needed. Your manager decides office or remote days.",
-        "No check-in on days off or after your shift ends."])}
-      ${sec("status", ICONS.breaks, "Breaks and status", [
-        `Per shift: ${S.break_short_count} × ${S.break_short_min} min, ${S.break_long_count} × ${S.break_long_min} min, ${S.break_wc_count} × ${S.break_wc_min} min WC, in any order.`,
-        `No breaks in the first or last ${S.break_edge_min} min of your shift.`,
-        `At least ${S.min_available} teammate must stay available, for every status.`,
-        "Meeting and Task / Out of Q have no time limit and do not use your breaks.",
-        `Going over a break turns the timer red. After ${S.break_alert_after_min} min over, managers see it.`])}
-      ${sec("end", ICONS.team, "End of day and overtime", [
-        "Automatic check-out 1 minute after your shift, marked Auto.",
-        "Staying longer? Use <b>Extend shift</b> before your shift ends. A manager approves it.",
-        `Leaving more than ${S.early_leave_min} min early is recorded for managers.`])}
-      ${sec("leave", ICONS.schedule, "Schedule and leave", [
-        "Your shifts and office or remote days are in <b>My schedule</b>.",
-        `Leave types: ${LEAVE_ORDER.map(t=>`<span class="lv-tag lv-${t}">${LEAVE[t][1]}</span>${LEAVE[t][0]}`).join(", ")}.`,
-        "Leave days carry no points and do not break your streak."])}
-      ${sec("adherence", ICONS.mine, "Adherence and streak", [
-        `Adherence: the share of your scheduled time on schedule. Target ${S.adherence_target}%.`,
-        "Late minutes, early leaves, absences and over-break minutes count against it. Meetings and tasks do not.",
-        "On-time streak: working days in a row with no late minute. 10 days earns the 2-week mark."])}
-      ${sec("privacy", ICONS.profile, "What others can see", [
-        "Your team sees your name, photo, title, shift, status and breaks left.",
-        "Only managers see check-in times, location distance, points, adherence and early leaves.",
-        "Every manager change is recorded in the Activity log."])}
-      ${sec("faq", ICONS.audit, "Common questions", [
-        "Location fails: allow location for this site in your browser and try again.",
-        "Forgot to check out: nothing to do, it happens automatically.",
-        "Something looks wrong: <b>Settings → Help</b> sends it to the developer."])}`;
-    const managers = me.is_admin ? `
-      <section class="panel"><h2>Plan a month</h2>${steps([
-        ["Weekly plan", "In <b>Schedule</b>, set each person's shift and remote weekdays, then <b>Apply plan</b>."],
-        ["Fix single days", "Click a day in <b>Month overview</b> for leave, a different shift, or office and remote."],
-        ["Keep it at 100%", "The rule check shows problems with one-click fixes."],
-        ["Review", "<b>Points report</b> at month end. Export CSV if needed."]])}</section>
-      ${sec("rules", ICONS.schedule, "Schedule rules", [
-        `At least ${R.min_senior_office} senior in the office every working day. Seniors: ${esc(seniors)}.`,
-        `Never remote on the same day: ${esc(pairs)}.`,
-        R.night_needs_morning_office ? "When the 14:00 shift works, someone on the 08 or 09 shift is in the office." : "Morning office cover rule is off.",
-        R.no_consecutive_remote ? "Nobody is remote two working days in a row. Friday then Monday counts." : "Back-to-back remote days are allowed.",
-        "Breaking a rule shows an error with suggestions. <b>Save anyway</b> is for exceptions and is logged."])}
-      ${sec("month", ICONS.checkin, "Editing days", [
-        "Click a day to change it. Shift-click selects a range, across people too. Ctrl or ⌘-click adds single days.",
-        "Day types: Working, Paid leave, Sick leave, Half day paid, Unpaid day, Excused.",
-        "Applying a weekly plan replaces single-day changes in that period, so plan first and fix days after."])}
-      ${sec("roles", ICONS.people, "Roles", [
-        "<b>Agent</b>: checks in, takes breaks, earns points, in the schedule.",
-        "<b>Senior</b> and <b>Supervisor</b>: manager access, in the schedule only. No check-in, breaks or points. Seniors count for senior cover.",
-        "<b>Manager only</b>: manager access, not in the schedule.",
-        "Change roles in <b>Employees</b> by clicking a person."])}
-      ${sec("daily", ICONS.live, "Daily tools", [
-        "<b>Live board</b>: who is available, on break or over.",
-        "<b>Attendance today</b>: check-ins, early leaves, and overtime requests to approve.",
-        "<b>Points report</b>: adjust red or black with a reason; agents see it.",
-        "<b>Activity log</b>: every change with who made it and when."])}
-      ${sec("settings", ICONS.settings, "Changing the rules", [
-        "<b>Settings → Team rules</b> holds every number on this page, the schedule rules and the office location.",
-        "This guide reads those settings, so it is always up to date."])}` : "";
+      ${flow([["Check in",`Opens ${S.checkin_open_min} min before your shift`],["Status","Breaks, meetings, tasks"],["Check out","Or automatic 1 min after"],["Your month","My points and My schedule"]])}
+      <section class="gx"><h2>Points</h2><div class="pts">${pts.map(([b,t,d,c])=>`<div class="pt ${c}"><span class="pt-b">${b}</span><b>${t}</b><span>${d}</span></div>`).join("")}</div>
+        <p class="hint">${S.grace_min} min grace at shift start. Resets on the 1st. ${S.review_threshold}+ penalties in a month means a review.</p></section>
+      <div class="tcs">
+        ${topic("checkin","Check in",[`Shifts: ${sh}`,`Office days: within ${S.radius_m} m of the office`,"Remote days: no location","Your schedule decides office or remote"])}
+        ${topic("breaks","Status",[`${S.break_short_count}×${S.break_short_min} min, ${S.break_long_count}×${S.break_long_min} min, ${S.break_wc_count}×${S.break_wc_min} min WC`,`Not in the first or last ${S.break_edge_min} min`,`${S.min_available} teammate always stays available`,"Meetings and tasks have no limit"])}
+        ${topic("team","End of day",["Auto check-out 1 min after your shift","Staying late? Extend shift, a manager approves",`Leaving over ${S.early_leave_min} min early is recorded`])}
+        ${topic("schedule","Schedule and leave",["See your days in My schedule",`Leave: ${LEAVE_ORDER.map(t=>LEAVE[t][0]).join(", ")}`,"Leave days carry no points"])}
+        ${topic("mine","Adherence and streak",[`Target ${S.adherence_target}% of your time on schedule`,"Late, early leave, absence and over-break count against it","10 on-time days in a row earns the 2-week mark"])}
+        ${topic("profile","Privacy",["Team sees: name, photo, title, shift, status","Full access sees: times, distance, points","Every change is in the Activity log"])}
+      </div>
+      <p class="hint">Something wrong? Open <b>Help</b> in the menu.</p>`;
+    const full = me.is_admin ? `
+      ${flow([["Weekly plan","Shifts and remote days, pick the dates"],["Fix days","Click a day in Month overview"],["Rule check","Keep it at 100%"],["Review","Points report at month end"]])}
+      <div class="tcs">
+        ${topic("schedule","Schedule rules",[`${R.min_senior_office} senior in the office daily (${esc(seniors)})`,`Never remote together: ${esc(pairs)}`,R.night_needs_morning_office?"Night shift on: 08 or 09 shift in the office":"Morning cover rule off",R.no_consecutive_remote?"No remote days in a row (Fri then Mon counts)":"Back-to-back remote allowed"])}
+        ${topic("checkin","Editing days",["Click a day; Shift-click for a range","Ctrl or ⌘-click adds days","Weekly plan replaces day edits in its dates"])}
+        ${topic("people","Access",["<b>Full access</b>: seniors, supervisors, managers, heads","<b>Member access</b>: agents","Seniors and supervisors are in the schedule only"])}
+        ${topic("live","Daily",["Live board: who is available","Attendance today: approve overtime","Points report: adjust with a reason"])}
+        ${topic("settings","Rules",["Settings → Team rules holds every number","This guide updates itself from it"])}
+      </div>` : "";
     el.innerHTML = `
-      ${me.is_admin ? `<div class="seg set-tabs" id="gdTabs"><button type="button" class="seg-b ${this.part==="everyone"?"on":""}" data-v="everyone">For everyone</button><button type="button" class="seg-b ${this.part==="managers"?"on":""}" data-v="managers">For managers</button></div>` : ""}
-      <div class="gd-search"><input class="inl" id="gdQ" placeholder="Search, for example: late, WC, overtime, remote"></div>
-      <div id="gdList">${this.part==="managers" && me.is_admin ? managers : everyone}</div>`;
+      <div class="g-top">${me.is_admin ? `<div class="seg" id="gdTabs"><button type="button" class="seg-b ${this.part==="everyone"?"on":""}" data-v="everyone">Everyone</button><button type="button" class="seg-b ${this.part==="full"?"on":""}" data-v="full">Full access</button></div>` : ""}
+        <input class="inl" id="gdQ" placeholder="Search: late, WC, overtime, remote"></div>
+      <div id="gdList">${this.part==="full" && me.is_admin ? full : everyone}</div>`;
     const t = $("#gdTabs"); if(t) t.querySelectorAll(".seg-b").forEach(b => b.onclick = () => { this.part = b.dataset.v; this.mount(el); replay($("#gdList"), "pg-in"); });
     $("#gdQ").oninput = e => { const q = e.target.value.trim().toLowerCase();
-      document.querySelectorAll("#gdList .gd, #gdList > section").forEach(d => { const hit = !q || d.textContent.toLowerCase().includes(q); d.hidden = !hit; if(q && hit && d.tagName==="DETAILS") d.open = true; }); };
+      document.querySelectorAll("#gdList .tc, #gdList .gx, #gdList .flow").forEach(d => { d.hidden = !!q && !d.textContent.toLowerCase().includes(q); }); };
   }
 };
 
 /* ---------- report an issue ---------- */
 const DEV_EMAIL = "ahmed.kamal@aaico.com";
+views.help = { mount(el){ el.innerHTML = views.issue.html(); views.issue.wire(); } };
 views.issue = {
   html(){ return `
       <section class="panel"><h2>Report a problem</h2>
         <div class="grid">
           <label class="f">What is it about?<select id="isCat"><option>Check in or check out</option><option>Breaks or status</option><option>Points or report</option><option>Schedule</option><option>Location or office distance</option><option>Sign in</option><option>Something else</option></select></label>
-          <label class="f">Where did it happen?<select id="isPage">${tabsFor().filter(x=>x[0]!=="head"&&x[0]!=="profile").map(x=>`<option>${esc(x[1])}</option>`).join("")}<option>Other</option></select></label>
+          <label class="f">Where did it happen?<select id="isPage">${tabsFor().filter(x=>x[0]!=="head"&&x[0]!=="help").map(x=>`<option>${esc(x[1])}</option>`).join("")}<option>Other</option></select></label>
         </div>
         <label class="f" style="margin-top:12px">Describe the problem<textarea id="isMsg" rows="6" maxlength="2000" placeholder="What did you do, what did you expect, and what happened instead? Include the time if you can."></textarea></label>
         <div class="actions" style="justify-content:space-between;align-items:center">
@@ -1458,13 +1411,12 @@ views.profile = {
   sub:"account",
   mount(el){
     this.el = el;
-    const subs = [["account","My account"], ...(me.is_admin ? [["rules","Team rules"]] : []), ["help","Help"]];
+    const subs = [["account","My account"], ...(me.is_admin ? [["rules","Team rules"]] : [])];
     if(!subs.some(x=>x[0]===this.sub)) this.sub = "account";
     el.innerHTML = `<div class="seg set-tabs" id="setTabs">${subs.map(([k,l])=>`<button type="button" class="seg-b ${k===this.sub?"on":""}" data-v="${k}">${l}</button>`).join("")}</div><div id="setBody"></div>`;
     $("#setTabs").querySelectorAll(".seg-b").forEach(b => b.onclick = () => { this.sub = b.dataset.v; this.mount(el); replay($("#setBody"), "pg-in"); });
     const body = $("#setBody");
     if(this.sub === "rules"){ views.settings.mount(body); return; }
-    if(this.sub === "help"){ body.innerHTML = views.issue.html(); views.issue.wire(); return; }
     this.account(body);
   },
   account(el){

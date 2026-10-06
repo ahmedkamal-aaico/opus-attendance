@@ -610,6 +610,34 @@ body{font-size:14.5px;letter-spacing:-.003em}
 .gd-ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px;line-height:1.5;font-size:14px}
 :root[data-theme="dark"] .gc{background:var(--surface2)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .gc{background:var(--surface2)}}
+/* ===== Guide v3 ===== */
+.g-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.g-top .inl{flex:1;min-width:220px}
+.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-bottom:16px;background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+.fl{display:flex;flex-direction:column;gap:2px;padding:16px;border-left:1px solid var(--line);position:relative}
+.fl:first-child{border-left:0}
+.fl-n{width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:12px;font-weight:700;margin-bottom:6px}
+.fl b{font-size:14.5px}.fl span:last-child{font-size:12.5px;color:var(--muted)}
+.gx{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
+.pts{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.pt{display:flex;flex-direction:column;gap:2px;padding:12px;border-radius:12px;background:var(--bg)}
+.pt-b{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.pt b{font-size:13px}.pt span:last-child{font-size:12px;color:var(--muted);line-height:1.35}
+.pt.ok .pt-b{color:var(--muted)}.pt.mid .pt-b{color:var(--amber)}.pt.red .pt-b{color:var(--red)}.pt.blk .pt-b{color:var(--blk)}.pt.green .pt-b{color:var(--green)}
+.tcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.tc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow)}
+.tc h3{margin:10px 0 6px;font-size:15px}
+.tc ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.tc li{font-size:13.5px;line-height:1.45;padding-left:14px;position:relative}
+.tc li::before{content:"";position:absolute;left:0;top:.6em;width:5px;height:5px;border-radius:50%;background:var(--muted)}
+.tc-i{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--bg);border:1px solid var(--line)}
+.tc-i svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.pl-dates{display:flex;gap:10px;flex-wrap:wrap}
+.pl-dates .inl{padding:6px 8px}
+.acc-full{color:var(--ink);font-weight:600}
+@media (max-width:760px){.flow{grid-template-columns:1fr 1fr}.fl:nth-child(3){border-left:0}.fl:nth-child(n+3){border-top:1px solid var(--line)}.pts{grid-template-columns:1fr 1fr}}
+:root[data-theme="dark"] .pt,:root[data-theme="dark"] .tc-i{background:var(--surface2)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pt,:root:not([data-theme="light"]) .tc-i{background:var(--surface2)}}
 /* ===== Motion ===== */
 @keyframes pgIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}
