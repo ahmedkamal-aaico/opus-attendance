@@ -369,6 +369,7 @@ views.live = {
       <div class="board">${rows.map(({r,st}) => { const [t0,c] = STATUS[st.s]; const t = st.s==="busy" ? breakName(r) : t0; const left = breaksLeft(r);
         return `<div class="pcard st-${c}" data-eid="${r.employee_id}" data-st="${st.s}" ${st.s==="break"||st.s==="over" ? "data-bwrap" : ""}>
           <div class="pc-top"><span class="avn">${avatar(r.name, r.employee_id)}<b>${esc(r.name)}${r.employee_id===me.id?" <span class='muted small'>(you)</span>":""}</b></span><span class="pill p-${c}">${t}</span></div>
+          ${r.title ? `<div class="pc-title">${esc(r.title)}</div>` : ""}
           <div class="small muted">${r.is_off && !r.check_in ? "No shift today" : `Shift ${short(r.shift_start)} to ${short(r.shift_end)}`}${me.is_admin && r.check_in && !r.check_out ? `, ${r.mode==="remote"?"remote":"office"} since ${tstr(r.check_in)}` : ""}</div>
           ${st.s==="break"||st.s==="over" ? `<div class="pc-timer">${breakName(r)}, ${timerSpan(r)}</div>` : ""}
           ${st.s==="busy" ? `<div class="pc-timer">${breakName(r)} for ${timerSpan(r)}</div>` : ""}
@@ -769,6 +770,91 @@ views.audit = {
   }
 };
 
+/* ---------- schedule rules ---------- */
+const RULES = () => ({ min_senior_office:1, night_needs_morning_office:true, no_consecutive_remote:true, remote_pairs:[], ...(S.rules||{}) });
+const enameOf = id => emps.find(e=>e.id===id)?.name || "";
+function dayPlan(sm, e, k){
+  if(e.since && k < e.since) return null;
+  if(sm[`X|${e.id}|${k}`] !== undefined) return null;
+  const sf = shiftFor(e, k, sm); if(sf.off) return null;
+  return { mode: sf.mode, night: pHM(sf.sh.start) >= 12*60 };
+}
+function checkSchedule(ym, sm){
+  const R = RULES(), list = tracked(), days = monthKeys(ym), issues = [];
+  const work = {};
+  for(const k of days) work[k] = list.map(e => ({ e, p: dayPlan(sm, e, k) })).filter(x => x.p);
+  let workDays = 0;
+  for(const k of days){
+    const arr = work[k]; if(!arr.length) continue; workDays++;
+    const seniors = arr.filter(x => x.e.senior), need = Math.min(R.min_senior_office||0, seniors.length);
+    if(need > 0 && seniors.filter(x => x.p.mode==="office").length < need)
+      issues.push({ k, rule:"senior", text:"No senior in the office", people:seniors.map(x=>x.e.id), fixes:seniors.filter(x=>x.p.mode==="remote").map(x=>({ eid:x.e.id, k, mode:"office" })) });
+    for(const [a, b] of R.remote_pairs||[]){
+      const A = arr.find(x=>x.e.id===a), B = arr.find(x=>x.e.id===b);
+      if(A && B && A.p.mode==="remote" && B.p.mode==="remote")
+        issues.push({ k, rule:"pair", text:`${enameOf(a)} and ${enameOf(b)} are both remote`, people:[a,b], fixes:[{ eid:a, k, mode:"office" },{ eid:b, k, mode:"office" }] });
+    }
+    if(R.night_needs_morning_office){
+      const night = arr.filter(x=>x.p.night), morn = arr.filter(x=>!x.p.night);
+      if(night.length && !morn.some(x=>x.p.mode==="office"))
+        issues.push({ k, rule:"night", text:"Night shift is working, but nobody on the 08 or 09 shift is in the office", people:morn.map(x=>x.e.id), fixes:morn.map(x=>({ eid:x.e.id, k, mode:"office" })) });
+    }
+  }
+  if(R.no_consecutive_remote){
+    for(const e of list){
+      let prev = null, prevK = null;
+      const pre = new Date(Date.parse(days[0]+"T12:00:00Z")); 
+      for(let i = 1; i <= 7; i++){ const k = new Date(pre - i*864e5).toISOString().slice(0,10); if(sm[`X|${e.id}|${k}`] !== undefined) break; const p = dayPlan(sm, e, k); if(p){ prev = p.mode; prevK = k; break; } }
+      for(const k of days){
+        if(sm[`X|${e.id}|${k}`] !== undefined){ prev = null; continue; }
+        const p = work[k].find(x=>x.e.id===e.id)?.p; if(!p) continue;
+        if(p.mode==="remote" && prev==="remote")
+          issues.push({ k, rule:"consecutive", text:`${e.name} is remote two working days in a row (${prettyDate(prevK)} and ${prettyDate(k)})`, people:[e.id], fixes:[{ eid:e.id, k, mode:"office" }, ...(prevK >= days[0] ? [{ eid:e.id, k:prevK, mode:"office" }] : [])] });
+        prev = p.mode; prevK = k;
+      }
+    }
+  }
+  const bad = new Set(issues.map(i=>i.k));
+  return { issues, workDays, pct: workDays ? Math.round((workDays - bad.size) / workDays * 100) : 100 };
+}
+const issueKey = i => `${i.rule}|${i.k}|${[...i.people].sort().join(",")}`;
+function applyChangesTo(sm, changes){
+  const c = { ...sm };
+  for(const x of changes){
+    if(x.leave){ c[`X|${x.eid}|${x.k}`] = x.reason || ""; c[`XT|${x.eid}|${x.k}`] = x.leave; continue; }
+    if(x.clearLeave){ delete c[`X|${x.eid}|${x.k}`]; delete c[`XT|${x.eid}|${x.k}`]; }
+    if(x.shift && x.shift !== "keep") c[`${x.eid}|${x.k}`] = x.shift === "off" ? null : x.shift;
+    if(x.mode && x.mode !== "keep"){ if(c[`${x.eid}|${x.k}`] === undefined){ const e = emps.find(y=>y.id===x.eid), sf = shiftFor(e, x.k, c); if(!sf.off) c[`${x.eid}|${x.k}`] = Object.keys(shifts).find(i=>shifts[i]===sf.sh); } c[`M|${x.eid}|${x.k}`] = x.mode; }
+  }
+  return c;
+}
+function goodFixes(ym, sm, issue){
+  const base = checkSchedule(ym, sm).issues.length;
+  return issue.fixes.filter(f => { const r = checkSchedule(ym, applyChangesTo(sm, [f])); return r.issues.length < base; });
+}
+const fixLabel = f => `Make ${enameOf(f.eid).split(" ")[0]} office on ${prettyDate(f.k)}`;
+function newIssuesAfter(ym, changes){
+  const before = new Set(checkSchedule(ym, team.sched).issues.map(issueKey));
+  const sim = applyChangesTo(team.sched, changes), after = checkSchedule(ym, sim).issues;
+  return { sim, fresh: after.filter(i => !before.has(issueKey(i))) };
+}
+function ruleDialog(ym, changes, issues, onDecide){
+  const dlg = $("#ruleDlg"), sim = applyChangesTo(team.sched, changes);
+  const RULE_NAMES = { senior:"Senior cover", pair:"Not remote together", night:"Morning office cover", consecutive:"No remote days in a row" };
+  const own = f => changes.some(c => c.eid===f.eid && c.k===f.k);
+  const fixesFor = i => goodFixes(ym, sim, i).filter(f => !own(f));
+  $("#rdList").innerHTML = issues.map((i, n) => { const fx = fixesFor(i);
+    return `<div class="rd-item"><div class="rd-h"><span class="rd-rule">${RULE_NAMES[i.rule]}</span><span class="small muted">${esc(prettyDate(i.k))}</span></div><div>${esc(i.text)}</div>
+      ${fx.length ? `<div class="rd-fix">${fx.map((f, j) => `<button class="btn small" data-fix="${n}:${j}">${esc(fixLabel(f))}</button>`).join("")}</div>` : `<div class="small muted">No single change fixes this. Adjust the schedule by hand.</div>`}</div>`; }).join("");
+  dlg.querySelectorAll("[data-fix]").forEach(b => b.onclick = () => { const [n, j] = b.dataset.fix.split(":").map(Number); const f = fixesFor(issues[n])[j]; dlg.close(); onDecide([f]); });
+  $("#rdAnyway").onclick = () => { dlg.close(); onDecide([]); };
+  $("#rdCancel").onclick = () => dlg.close();
+  dlg.showModal();
+}
+async function saveModeFixes(fixes){
+  for(const f of fixes){ const { error } = await sb.rpc("set_schedule", { p_employee:f.eid, p_from:f.k, p_to:f.k, p_shift:"keep", p_working_only:false, p_mode:f.mode }); if(error) throw error; }
+}
+
 /* ---------- schedule ---------- */
 function monthOptions(sel){
   const now0 = ymOf(dkey(now())), [y,m] = now0.split("-").map(Number), out = [];
@@ -784,7 +870,7 @@ views.schedule = {
       <div class="panel"><h2>Change shifts</h2><div id="scEdit"></div>
         <p class="hint">Pick a shift, where they work, or both. Keep leaves that part unchanged. Date range applies to working days only; weekends and holidays stay off. One day changes that exact day. Agents cannot change where they work; check-in follows this schedule.</p>
       </div>
-      <div class="panel"><h2>Month overview</h2><div id="scBody"><p class="muted">Loading</p></div></div>`;
+      <div class="panel"><div class="shift-head"><h2 style="margin:0">Month overview</h2><span id="scScore"></span></div><div id="scCheck"></div><div id="scBody"><p class="muted">Loading</p></div></div>`;
     $("#scSel").onchange = e => { this.ym = e.target.value; this.renderEdit(); loadTeam(this.ym); };
     this.renderEdit(); loadTeam(this.ym);
   },
@@ -818,8 +904,14 @@ views.schedule = {
       excuseDialog({ name, days, type:lt, onSave: async reason => { for(const k of days){ const { error } = await sb.rpc("set_excused", { p_employee:eid, p_day:k, p_excused:true, p_reason:reason, p_type:lt }); if(error) throw error; } toast(`${name}: ${days.length} day(s) set to ${LEAVE[lt][0].toLowerCase()}`); loadTeam(this.ym); } });
       return;
     }
+    if(arguments[7] === undefined){
+      const changes = monthKeys(this.ym).filter(k => k >= from && k <= to).map(k => (mode==="range" && !isWorkday(k) && shift !== "keep") ? { eid, k, shift:"off" } : { eid, k, shift, mode:wmode });
+      const { fresh } = newIssuesAfter(this.ym, changes);
+      if(fresh.length){ ruleDialog(this.ym, changes, fresh, fx => this.apply(eid, shift, mode, from, to, btn, wmode, fx)); return; }
+    }
     btn.disabled = true;
     const { error } = await sb.rpc("set_schedule", { p_employee:eid, p_from:from, p_to:to, p_shift:shift, p_working_only: mode==="range", p_mode: wmode });
+    if(!error && arguments[7]?.length) try{ await saveModeFixes(arguments[7]); }catch(e){ toast(errMsg(e)); }
     btn.disabled = false;
     if(error){ toast(errMsg(error)); return; }
     toast(mode==="day" ? `${name}: ${prettyDate(from)} saved` : `${name}: ${prettyDate(from)} to ${prettyDate(to)} saved`);
@@ -830,6 +922,9 @@ views.schedule = {
     if(team.loading || team.ym !== this.ym){ $("#scBody").innerHTML = `<p class="muted">Loading</p>`; return; }
     const days = monthKeys(this.ym), list = tracked();
     const ids = Object.keys(shifts), tone = id => `s${(ids.indexOf(id) % 3) + 1}`, today = dkey(now());
+    const chk = checkSchedule(this.ym, team.sched), badCells = new Set(chk.issues.flatMap(i => i.rule==="consecutive" || i.rule==="pair" ? i.people.map(p=>`${p}|${i.k}`) : []));
+    const badDays = new Set(chk.issues.map(i=>i.k));
+    this.renderCheck(chk);
     const counts = {};
     const cell = (e,k) => {
       const ex = team.sched[`X|${e.id}|${k}`], sf = shiftFor(e,k,team.sched), id = ids.find(i => shifts[i]===sf.sh);
@@ -841,15 +936,28 @@ views.schedule = {
       else { cls = tone(id) + (sf.planned ? "" : " def"); txt = sf.sh.start.slice(0,2); counts[e.id] = (counts[e.id]||0) + 1; }
       const rem = !sf.off && ex === undefined && sf.mode==="remote" ? `<i class="rm" aria-label="Remote"></i>` : "";
       const tip = `${e.name}, ${prettyDate(k)}: ${ex !== undefined ? LEAVE[lt][0] + (ex ? " ("+ex+")" : "") : sf.off ? "Day off" : sf.sh.start+" to "+sf.sh.end+(sf.mode==="remote"?", remote":", office")+(sf.planned?"":", default")}`;
-      return `<td class="mo-c${we}${td}"><button class="ocell mo ${cls}" data-e="${e.id}" data-k="${k}" title="${esc(tip)}">${txt}${rem}</button></td>`;
+      return `<td class="mo-c${we}${td}${badCells.has(`${e.id}|${k}`)?" bad":""}"><button class="ocell mo ${cls}" data-e="${e.id}" data-k="${k}" title="${esc(tip)}">${txt}${rem}</button></td>`;
     };
-    const body = list.map(e=>{ const cells = days.map(k=>cell(e,k)).join(""); return `<tr><th class="mo-name">${avatarName(e.name, e.id)}<span class="mo-cnt">${counts[e.id]||0} days</span></th>${cells}</tr>`; }).join("");
-    $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="mo-grid"><thead><tr><th class="mo-name"></th>${days.map(k=>`<th class="mo-h${!isWorkday(k)?" we":""}${k===today?" td":""}"><span>${DOW[wdOf(k)].slice(0,1)}</span><b>${+k.slice(8)}</b></th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
+    const body = list.map(e=>{ const cells = days.map(k=>cell(e,k)).join(""); return `<tr><th class="mo-name">${avatarName(e.name, e.id)}<span class="mo-cnt">${esc(e.title||"")}${e.title?" · ":""}${counts[e.id]||0} days${e.senior?' <span class="sr-tag">Senior</span>':""}</span></th>${cells}</tr>`; }).join("");
+    $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="mo-grid"><thead><tr><th class="mo-name"></th>${days.map(k=>`<th class="mo-h${!isWorkday(k)?" we":""}${k===today?" td":""}${badDays.has(k)?" bad":""}"><span>${DOW[wdOf(k)].slice(0,1)}</span><b>${+k.slice(8)}</b></th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="cal-legend">${ids.map(id=>`<span><i class="cal-sw ${tone(id)}"></i>${esc(shiftLabel(id))}</span>`).join("")}<span><i class="cal-sw so"></i>Day off</span>${LEAVE_ORDER.map(t=>`<span><span class="lv-tag lv-${t}">${LEAVE[t][1]}</span>${LEAVE[t][0]}</span>`).join("")}<span><i class="rm lg"></i>Remote</span><span><i class="cal-sw dflt"></i>Default, not set in schedule</span></div>
+      <p class="hint">Rules: at least ${RULES().min_senior_office} senior in the office, ${(RULES().remote_pairs||[]).map(([a,b])=>`${esc(enameOf(a).split(" ")[0])} and ${esc(enameOf(b).split(" ")[0])} not remote together`).join(", ")||"no remote pairs set"}, a morning office cover when night shift works, and no remote days in a row (Friday then Monday counts). Change them in Settings.</p>
       <p class="hint">Click a day to edit it. Shift-click another day to select a range, across agents too. Ctrl or ⌘-click to add single days. Esc closes the editor.</p>` : `<p class="empty">No tracked employees.</p>`;
     this.sel = this.sel || new Set();
     this.paintSel();
     $("#scBody").querySelectorAll(".ocell").forEach(b => b.onclick = ev => this.pick(b, ev));
+  },
+  renderCheck(chk){
+    const ok = !chk.issues.length;
+    $("#scScore").innerHTML = `<span class="score ${ok?"ok":chk.pct>=90?"mid":"bad"}">${chk.pct}% of days pass the rules</span>`;
+    const RULE_NAMES = { senior:"Senior cover", pair:"Not remote together", night:"Morning office cover", consecutive:"No remote days in a row" };
+    $("#scCheck").innerHTML = ok ? "" : `<details class="chk" ${chk.issues.length <= 6 ? "open" : ""}><summary>${chk.issues.length} issue${chk.issues.length>1?"s":""} to fix</summary>
+      ${chk.issues.map((i, n) => { const fx = goodFixes(this.ym, team.sched, i).slice(0, 3);
+        return `<div class="rd-item"><div class="rd-h"><span class="rd-rule">${RULE_NAMES[i.rule]}</span><span class="small muted">${esc(prettyDate(i.k))}</span></div><div class="small">${esc(i.text)}</div>${fx.length ? `<div class="rd-fix">${fx.map((f,j)=>`<button class="btn small" data-qf="${n}:${j}">${esc(fixLabel(f))}</button>`).join("")}</div>` : ""}</div>`; }).join("")}</details>`;
+    $("#scCheck").querySelectorAll("[data-qf]").forEach(b => b.onclick = async () => {
+      const [n, j] = b.dataset.qf.split(":").map(Number), f = goodFixes(this.ym, team.sched, chk.issues[n])[j];
+      b.disabled = true; try{ await saveModeFixes([f]); toast("Fixed"); loadTeam(this.ym); }catch(e){ toast(errMsg(e)); b.disabled = false; }
+    });
   },
   key: b => `${b.dataset.e}|${b.dataset.k}`,
   paintSel(){ document.querySelectorAll("#scBody .ocell").forEach(b => b.classList.toggle("sel", this.sel.has(this.key(b)))); },
@@ -905,7 +1013,13 @@ views.schedule = {
       let top = r.bottom + 8; if(top + ph > innerHeight - 12) top = Math.max(12, r.top - ph - 8);
       pop.style.left = left + "px"; pop.style.top = top + "px"; }
   },
-  async saveEditor(sel, type, shift, mode, reason){
+  async saveEditor(sel, type, shift, mode, reason, extras){
+    if(extras === undefined){
+      const changes = sel.map(x => type !== "working" ? { eid:x.eid, k:x.d, leave:type, reason } : { eid:x.eid, k:x.d, clearLeave:true, shift:shift||"keep", mode });
+      const { fresh } = newIssuesAfter(this.ym, changes);
+      if(fresh.length){ ruleDialog(this.ym, changes, fresh, fx => this.saveEditor(sel, type, shift, mode, reason, fx)); return; }
+      extras = [];
+    }
     const btn = $("#deSave"); btn.disabled = true; $("#deErr").textContent = "";
     try{
       const byEmp = {}; for(const x of sel) (byEmp[x.eid] ||= []).push(x.d);
@@ -922,7 +1036,8 @@ views.schedule = {
         for(const d of ds){ if(cur && Date.parse(d+"T12:00:00Z") - Date.parse(cur[1]+"T12:00:00Z") === 864e5) cur[1] = d; else { cur = [d, d]; runs.push(cur); } }
         for(const [a, b] of runs){ const { error } = await sb.rpc("set_schedule", { p_employee:eid, p_from:a, p_to:b, p_shift:sh, p_working_only:false, p_mode:md }); if(error) throw error; }
       }
-      toast(sel.length === 1 ? "Day updated" : `${sel.length} days updated`);
+      await saveModeFixes(extras);
+      toast((sel.length === 1 ? "Day updated" : `${sel.length} days updated`) + (extras.length ? ", with the fix" : ""));
       this.sel.clear(); closeDayEditor(); loadTeam(this.ym);
     }catch(e){ $("#deErr").textContent = errMsg(e); btn.disabled = false; }
   }
@@ -1002,9 +1117,11 @@ views.people = {
   mount(el){ this.el = el; this.render(); },
   render(){
     const shOpts = sel => Object.keys(shifts).map(id=>`<option value="${id}" ${sel===id?"selected":""}>${esc(shiftLabel(id))}</option>`).join("");
-    this.el.innerHTML = `<div class="panel scroll"><table class="rows"><thead><tr><th>Name</th><th>Work email (login)</th><th>Default shift</th><th>Works from</th><th>Counts from</th><th>Tracked</th><th>Manager</th><th>Active</th><th></th></tr></thead><tbody>
+    this.el.innerHTML = `<div class="panel scroll"><table class="rows"><thead><tr><th>Name</th><th>Title</th><th>Senior</th><th>Work email (login)</th><th>Default shift</th><th>Works from</th><th>Counts from</th><th>Tracked</th><th>Manager</th><th>Active</th><th></th></tr></thead><tbody>
       ${emps.map(e=>`<tr data-id="${e.id}">
         <td><input class="inl" data-f="name" value="${esc(e.name)}" maxlength="60"></td>
+        <td><input class="inl" data-f="title" value="${esc(e.title||"")}" maxlength="60" placeholder="Title"></td>
+        <td><input type="checkbox" data-f="senior" ${e.senior?"checked":""}></td>
         <td><input class="inl" type="email" data-f="email" value="${esc(e.email||"")}" placeholder="name@company.com"></td>
         <td><select class="inl" data-f="shift_id">${shOpts(e.shift_id)}</select></td>
         <td><select class="inl" data-f="default_mode"><option value="office" ${e.default_mode!=="remote"?"selected":""}>Office</option><option value="remote" ${e.default_mode==="remote"?"selected":""}>Remote</option></select></td>
@@ -1014,7 +1131,7 @@ views.people = {
         <td><input type="checkbox" data-f="active" ${e.active?"checked":""}></td>
         <td><button class="btn small primary" data-save>Save</button></td></tr>`).join("")}
       </tbody></table>
-      <p class="hint">Tracked: gets check-in tabs and points. Manager: sees admin tabs and receives late alerts. A manager who does not check in should be Manager only.</p></div>
+      <p class="hint">Senior: counts for the senior office cover rule in the schedule. Tracked: in the schedule, gets check-in and points. Manager: sees the manager tabs. A manager who does not check in should be Manager only.</p></div>
       <div class="actions" style="justify-content:flex-start"><button class="btn" id="pAdd">Add employee</button></div>`;
     this.el.querySelectorAll("[data-save]").forEach(b => b.onclick = async () => {
       const tr = b.closest("tr"), g = f => tr.querySelector(`[data-f="${f}"]`);
@@ -1023,7 +1140,7 @@ views.people = {
       if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("Enter a valid email."); return; }
       if(tr.dataset.id===me.id && (!g("is_admin").checked || !g("active").checked)){ toast("You cannot remove your own manager access."); return; }
       b.disabled = true;
-      const row = { name:g("name").value.trim(), email:email||null, shift_id:g("shift_id").value, default_mode:g("default_mode").value, since:g("since").value||null, tracked:g("tracked").checked, is_admin:g("is_admin").checked, active:g("active").checked };
+      const row = { name:g("name").value.trim(), title:g("title").value.trim()||null, senior:g("senior").checked, email:email||null, shift_id:g("shift_id").value, default_mode:g("default_mode").value, since:g("since").value||null, tracked:g("tracked").checked, is_admin:g("is_admin").checked, active:g("active").checked };
       const { error } = await sb.from("employees").update(row).eq("id", tr.dataset.id);
       b.disabled = false;
       if(error){ toast(error.code==="23505" ? "That email is already used by another employee." : errMsg(error)); return; }
@@ -1075,6 +1192,19 @@ views.settings = {
         </div>
         <p class="hint">All breaks, WC included, need a teammate to stay available. Over the break length shows red on the Live board. Past the alert time, a red banner shows for the employee and all managers.</p>
       </div>
+      <div class="panel"><h2>Schedule rules</h2>
+        <div class="grid">
+          <label class="f">Seniors in the office every working day<input type="number" min="0" max="5" id="rSen" value="${RULES().min_senior_office}"></label>
+        </div>
+        <div class="stack-12">
+          <label class="chk"><input type="checkbox" id="rNight" ${RULES().night_needs_morning_office?"checked":""}>When the night shift works, someone on the 08 or 09 shift must be in the office</label>
+          <label class="chk"><input type="checkbox" id="rCons" ${RULES().no_consecutive_remote?"checked":""}>Nobody works remote two working days in a row (Friday then Monday counts)</label>
+        </div>
+        <p class="small muted" style="margin:14px 0 6px">Never remote on the same day</p>
+        <div id="rPairs"></div>
+        <div class="ot-row" style="margin-top:8px"><select class="inl" id="rpA">${tracked().map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select><select class="inl" id="rpB">${tracked().map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select><button class="btn" id="rpAdd">Add pair</button></div>
+        <p class="hint">The schedule shows an error with suggestions whenever a change breaks one of these rules.</p>
+      </div>
       <div class="panel"><h2>Office location</h2>
         <div class="grid">
           <label class="f">Latitude<input id="sLat" value="${S.office_lat ?? ""}"></label>
@@ -1085,6 +1215,11 @@ views.settings = {
         <p class="hint">The server checks the distance on every office check-in. Coordinates are never stored for employees, only the distance.</p>
       </div>
       <div class="actions"><button class="btn primary big" id="sSave">Save settings</button></div>`;
+    this.pairs = (RULES().remote_pairs||[]).map(p=>[...p]);
+    const paintPairs = () => { $("#rPairs").innerHTML = this.pairs.length ? this.pairs.map(([x,y],i)=>`<div class="item"><span>${esc(enameOf(x))} and ${esc(enameOf(y))}</span><button class="btn small" data-rp="${i}">Remove</button></div>`).join("") : `<p class="empty" style="padding:0">No pairs.</p>`;
+      $("#rPairs").querySelectorAll("[data-rp]").forEach(b => b.onclick = () => { this.pairs.splice(+b.dataset.rp, 1); paintPairs(); }); };
+    paintPairs();
+    $("#rpAdd").onclick = () => { const x = $("#rpA").value, y = $("#rpB").value; if(x===y){ toast("Pick two different people."); return; } if(this.pairs.some(([p,q])=>(p===x&&q===y)||(p===y&&q===x))){ toast("That pair is already there."); return; } this.pairs.push([x,y]); paintPairs(); toast("Pair added. Save settings to apply."); };
     $("#sHere").onclick = async () => { try{ const p = await getPos(); $("#sLat").value = p.coords.latitude.toFixed(6); $("#sLng").value = p.coords.longitude.toFixed(6); toast("Location set. Save to apply."); }catch(e){ toast(errMsg(e)); } };
     $("#sSave").onclick = async e => {
       const hol = $("#sHol").value.split(/\s+/).map(x=>x.trim()).filter(Boolean);
@@ -1105,6 +1240,7 @@ views.settings = {
         min_available: Math.max(0, Math.round(+$("#sMinA").value||0)), break_alert_after_min: Math.max(1, +$("#sBal").value||15)
       };
       e.target.disabled = true;
+      row.rules = { ...RULES(), min_senior_office: Math.max(0, Math.round(+$("#rSen").value||0)), night_needs_morning_office: $("#rNight").checked, no_consecutive_remote: $("#rCons").checked, remote_pairs: this.pairs };
       const { error } = await sb.from("settings").update(row).eq("id",1);
       e.target.disabled = false;
       if(error){ toast(errMsg(error)); return; }
@@ -1258,7 +1394,6 @@ views.profile = {
           <div class="pf-actions">
             <label class="btn primary" for="pfFile">Upload photo</label><input type="file" id="pfFile" accept="image/jpeg,image/png,image/webp" hidden>
             <button class="btn" id="pfDel" ${photos[me.id]?"":"hidden"}>Remove photo</button>
-            <p class="hint" style="margin:0">Square crop, shown on the Live board and in reports. JPG, PNG or WebP.</p>
           </div>
         </div>
       </section>
@@ -1269,7 +1404,7 @@ views.profile = {
         <div class="pf-grid">
           <div><span>Name</span><b>${esc(me.name)}</b></div>
           <div><span>Email</span><b id="pfEmail">…</b></div>
-          <div><span>Role</span><b>${me.is_admin ? "Manager" : "Team member"}</b></div>
+          <div><span>Title</span><b>${esc(me.title || (me.is_admin ? "Manager" : "Team member"))}</b></div>
           ${me.tracked ? `<div><span>Default shift</span><b>${sh ? `${sh.start} to ${sh.end}` : "Not set"}</b></div>
           <div><span>Works from</span><b>${me.default_mode==="remote" ? "Remote" : "Office"}</b></div>` : ""}
         </div>

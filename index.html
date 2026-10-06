@@ -552,6 +552,23 @@ body{font-size:14.5px;letter-spacing:-.003em}
 :root[data-theme="dark"] .gd,:root[data-theme="dark"] .gd-steps li{background:var(--surface)} 
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .gd-steps li{background:var(--surface2)}}
 :root[data-theme="dark"] .gd-steps li{background:var(--surface2)}
+/* ===== Schedule rules ===== */
+.score{font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:999px}
+.score.ok{background:var(--green-bg);color:var(--green)}.score.mid{background:var(--amber-bg);color:var(--amber)}.score.bad{background:var(--red-bg);color:var(--red)}
+.chk{margin:12px 0;border:1px solid var(--line);border-radius:12px;padding:4px 12px;background:var(--bg)}
+.chk summary{cursor:pointer;font-weight:600;padding:8px 0;color:var(--red)}
+.rd-item{padding:10px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+.rd-item:first-of-type{border-top:0}
+.rd-h{display:flex;justify-content:space-between;gap:10px}
+.rd-rule{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--red)}
+.rd-fix{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+#rdList{max-height:50vh;overflow:auto}
+.mo-c.bad .ocell.mo{box-shadow:0 0 0 2px var(--red)}
+.mo-h.bad b{color:var(--red)}
+.mo-h.bad::after{content:"";display:block;width:5px;height:5px;border-radius:50%;background:var(--red);margin:2px auto 0}
+.pc-title{font-size:12px;font-weight:600;color:var(--muted);margin:-2px 0 2px 40px}
+.sr-tag{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;border-radius:5px;background:var(--blk-bg);color:var(--ink);margin-left:2px;vertical-align:1px}
+.stack-12{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 /* ===== Motion ===== */
 @keyframes pgIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes popIn{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}
@@ -608,7 +625,7 @@ html.theme-anim,html.theme-anim *,html.theme-anim *::before,html.theme-anim *::a
     <div class="sb-logo"><img class="logo" src="/logo.png" alt="Applied AI"><span>Opus Support Attendance</span></div>
     <div class="sb-top">
       <div class="sb-user" id="who"></div>
-      <div class="sb-actions"><button class="btn small theme-btn" data-theme-toggle><span class="sw"></span><span class="tl">Night mode</span></button><button class="btn small" id="signout">Sign out</button></div>
+      <div class="sb-actions"><button class="btn small" id="signout">Sign out</button></div>
     </div>
     <nav class="side" id="tabs" role="tablist" aria-label="Sections"></nav>
     <div class="sb-shift" id="sbShift" hidden></div>
@@ -629,6 +646,12 @@ html.theme-anim,html.theme-anim *,html.theme-anim *::before,html.theme-anim *::a
   <p class="err" id="exErr" role="alert"></p>
 </dialog>
 <div id="dayEd" class="dayed" role="dialog" aria-label="Edit day" hidden></div>
+<dialog id="ruleDlg" class="dlg" aria-labelledby="rdTitle">
+  <h2 id="rdTitle">This change breaks a schedule rule</h2>
+  <p class="small muted" style="margin:-8px 0 12px">Pick a suggestion to save the change with a fix, or go back and adjust it.</p>
+  <div id="rdList"></div>
+  <div class="actions"><button class="btn" id="rdCancel">Go back</button><button class="btn no" id="rdAnyway">Save anyway</button></div>
+</dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <!-- LIVE MODE: replace demo.js with this line
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script> -->
