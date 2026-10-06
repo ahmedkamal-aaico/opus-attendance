@@ -1,7 +1,7 @@
 "use strict";
 /* Preview mode: replaces Supabase with an in-browser sample database. Nothing is saved to the server. */
 (function(){
-  const KEY = "opus-demo-db-v16", AS = "opus-demo-as", SIM = "opus-demo-sim";
+  const KEY = "opus-demo-db-v17", AS = "opus-demo-as", SIM = "opus-demo-sim";
   const OFFICE = { lat:24.4290032, lng:54.4632417 };
   const fmt = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"});
   const dk = ms => fmt.format(ms);
@@ -16,7 +16,7 @@
     const people = [["Soufiane Douhaib","s08","Operations",false,false,true,1],["Mahmoud Abdelrahman","s09","Operations",false,false,true,2],["Moataz Elnoamani","s08","Operations",false,false,true,3],["Minu Boban","s14","Operations",false,false,true,4],["Asem Elsebaey","s09","Operations",false,false,true,5],
       ["Jaber Al Naimi","s08","Operations Senior",true,true,true,2],["Arsany Adel","s09","Operations Senior",true,true,true,3],["Ahmed Kamal","s08","Quality & Training Senior",true,true,true,4],["Rini Najimudheen","s09","Supervisor",false,true,true,1],
       ["Nada Elaraby","s08","Customer Care Manager",false,true,false,0],["Ibrahim Taha","s08","Customer Care Head",false,true,false,0]];
-    const employees = people.map(([name,shift,title,senior,adm,tr,rd],i) => ({ id:"e"+(i+1), name, title, senior, email:name.split(" ")[0].toLowerCase()+"@demo.aaico.com", shift_id:shift, default_mode:"office", tracked:tr, is_admin:adm, active:true, since:null, _rd:rd }));
+    const employees = people.map(([name,shift,title,senior,adm,tr,rd],i) => ({ id:"e"+(i+1), name, title, senior, email:name.split(" ")[0].toLowerCase()+"@demo.aaico.com", shift_id:shift, default_mode:"office", tracked: tr && !adm, scheduled: tr, is_admin:adm, active:true, since:null, _rd:rd }));
     const today = dk(Date.now()), [ty,tm] = today.split("-").map(Number);
     const prev = tm===1 ? `${ty-1}-12` : `${ty}-${String(tm-1).padStart(2,"0")}`;
     const days = [];
@@ -26,7 +26,7 @@
     }
     const schedule = [], attendance = [];
     const [cy, cm] = today.split("-").map(Number), nd = new Date(Date.UTC(cy, cm, 0)).getUTCDate();
-    for(const e of employees.filter(x=>x.tracked)) for(let dd = 1; dd <= nd; dd++){
+    for(const e of employees.filter(x=>x.scheduled)) for(let dd = 1; dd <= nd; dd++){
       const k = `${today.slice(0,7)}-${String(dd).padStart(2,"0")}`, wd = new Date(k+"T12:00:00Z").getUTCDay();
       const work = wd >= 1 && wd <= 5;
       schedule.push({ employee_id:e.id, day:k, shift_id: work ? e.shift_id : null, work_mode: work ? (wd===e._rd ? "remote" : "office") : null });
@@ -186,6 +186,14 @@
       audit("Changed schedule", nameOf(a.p_employee), `${a.p_from===a.p_to ? a.p_from : a.p_from+" to "+a.p_to}: ${sh ? sh.start_time.slice(0,5)+" to "+sh.end_time.slice(0,5) : a.p_shift==="keep" ? "shift unchanged" : "Day off"}${a.p_mode ? ", "+a.p_mode[0].toUpperCase()+a.p_mode.slice(1) : ""}`);
       save(); return { data:1, error:null };
     }
+    if(name==="apply_pattern"){
+      if(!m.is_admin) return fail("Only managers can change the schedule.");
+      let t = Date.parse(a.p_from+"T12:00:00Z"); const e2 = Date.parse(a.p_to+"T12:00:00Z");
+      while(t <= e2){ const k = new Date(t).toISOString().slice(0,10), wd = new Date(t).getUTCDay(), work = S.workdays.includes(wd) && !S.holidays.includes(k);
+        const row = { employee_id:a.p_employee, day:k, shift_id: work ? a.p_shift : null, work_mode: work ? ((a.p_remote_dows||[]).includes(wd) ? "remote" : "office") : null };
+        const ex = DB.schedule.find(r=>r.employee_id===a.p_employee && r.day===k); if(ex) Object.assign(ex, row); else DB.schedule.push(row); t += 864e5; }
+      audit("Applied weekly plan", nameOf(a.p_employee), `${a.p_from} to ${a.p_to}`); save(); return { data:1, error:null };
+    }
     if(name==="set_excused"){
       if(!m.is_admin) return fail("Only managers can excuse days.");
       DB.excused = DB.excused.filter(r=>!(r.employee_id===a.p_employee && r.day===a.p_day));
@@ -280,7 +288,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     const bar = document.createElement("div");
     bar.className = "demo-bar";
-    const opts = DB.employees.map(e=>`<option value="${e.id}" ${e.id===asId()?"selected":""}>${e.name}${e.is_admin ? " (manager)" : ""}</option>`).join("");
+    const opts = DB.employees.map(e=>`<option value="${e.id}" ${e.id===asId()?"selected":""}>${e.name}${e.title ? " ("+e.title+")" : ""}</option>`).join("");
     bar.innerHTML = `<b>Preview with sample data.</b><span>Nothing is saved to the server.</span>
       <label>View as <select id="dAs">${opts}</select></label>
       <label class="chk"><input type="checkbox" id="dSim" ${sessionStorage.getItem(SIM)==="1"?"checked":""}>Pretend I'm at the office</label>
