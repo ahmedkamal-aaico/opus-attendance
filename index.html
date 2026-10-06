@@ -244,13 +244,13 @@ label.btn{display:inline-block}
 .de-f{display:flex;justify-content:space-between;align-items:center;gap:10px;padding-top:12px;border-top:1px solid var(--line)}
 .ocell.mo.sel{outline:2.5px solid var(--accent);outline-offset:1px;z-index:1}
 .lv-tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:6px;margin-right:4px}
-.lv-paid{background:#E6F0FF;color:#1F4FB5}.lv-sick{background:#FDE7E4;color:#B4372B}.lv-half{background:#FFF1D6;color:#8A5A00}.lv-unpaid{background:#ECEDEF;color:#4A4F57}.lv-excused{background:#EAF6EF;color:#1D7A4D}
+.lv-holiday{background:#EFE7FB;color:#5B3BA6}.lv-paid{background:#E6F0FF;color:#1F4FB5}.lv-sick{background:#FDE7E4;color:#B4372B}.lv-half{background:#FFF1D6;color:#8A5A00}.lv-unpaid{background:#ECEDEF;color:#4A4F57}.lv-excused{background:#EAF6EF;color:#1D7A4D}
 .ocell.mo.exc.lv-paid,.ocell.mo.exc.lv-sick,.ocell.mo.exc.lv-half,.ocell.mo.exc.lv-unpaid,.ocell.mo.exc.lv-excused{border:0;font-size:10.5px}
-.ocell.mo.exc.lv-paid{background:#E6F0FF;color:#1F4FB5}.ocell.mo.exc.lv-sick{background:#FDE7E4;color:#B4372B}.ocell.mo.exc.lv-half{color:#8A5A00}.ocell.mo.exc.lv-unpaid{color:#4A4F57}.ocell.mo.exc.lv-excused{background:#EAF6EF;color:#1D7A4D}
+.ocell.mo.exc.lv-holiday{background:#EFE7FB;color:#5B3BA6;border:0}.ocell.mo.exc.lv-paid{background:#E6F0FF;color:#1F4FB5}.ocell.mo.exc.lv-sick{background:#FDE7E4;color:#B4372B}.ocell.mo.exc.lv-half{color:#8A5A00}.ocell.mo.exc.lv-unpaid{color:#4A4F57}.ocell.mo.exc.lv-excused{background:#EAF6EF;color:#1D7A4D}
 .ocell.mo.exc.lv-half{background:linear-gradient(135deg,#FFF1D6 50%,var(--bg) 50%)}
 .ocell.mo.exc.lv-unpaid{background:repeating-linear-gradient(135deg,#ECEDEF 0 4px,#F7F7F8 4px 8px)}
 .cal-exc.lv-paid,.cal-exc.lv-sick,.cal-exc.lv-half,.cal-exc.lv-unpaid{border:0}
-.seg-b.lv-paid.on{background:#1F4FB5;border-color:#1F4FB5;color:#fff}.seg-b.lv-sick.on{background:#B4372B;border-color:#B4372B;color:#fff}.seg-b.lv-half.on{background:#8A5A00;border-color:#8A5A00;color:#fff}.seg-b.lv-unpaid.on{background:#4A4F57;border-color:#4A4F57;color:#fff}.seg-b.lv-excused.on{background:#1D7A4D;border-color:#1D7A4D;color:#fff}
+.seg-b.lv-holiday.on{background:#5B3BA6;border-color:#5B3BA6;color:#fff}.seg-b.lv-paid.on{background:#1F4FB5;border-color:#1F4FB5;color:#fff}.seg-b.lv-sick.on{background:#B4372B;border-color:#B4372B;color:#fff}.seg-b.lv-half.on{background:#8A5A00;border-color:#8A5A00;color:#fff}.seg-b.lv-unpaid.on{background:#4A4F57;border-color:#4A4F57;color:#fff}.seg-b.lv-excused.on{background:#1D7A4D;border-color:#1D7A4D;color:#fff}
 img.av{object-fit:cover;padding:0;background:var(--bg)}
 .pf-row{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
 .pf-av .av{width:96px;height:96px;font-size:30px}
@@ -507,7 +507,7 @@ body{font-size:14.5px;letter-spacing:-.003em}
 :root[data-theme="dark"] .ocell.mo.exc{background:var(--surface);border-color:var(--ink)}
 :root[data-theme="dark"] .rm{background:var(--ink);border-color:var(--surface)}
 @media (prefers-color-scheme:dark){
-:root:not([data-theme="light"]) .lv-paid{background:rgba(110,150,240,.18);color:#AFC5F7}:root:not([data-theme="light"]) .lv-sick{background:rgba(238,143,132,.16);color:#F0A399}:root:not([data-theme="light"]) .lv-half{background:rgba(227,184,104,.16);color:#E8C682}:root:not([data-theme="light"]) .lv-unpaid{background:#2A2C31;color:#B9BCC4}:root:not([data-theme="light"]) .lv-excused{background:rgba(108,203,155,.15);color:#8FD8B2}
+:root:not([data-theme="light"]) .lv-holiday,:root:not([data-theme="light"]) .ocell.mo.exc.lv-holiday{background:rgba(160,120,240,.18);color:#C9B5F5}:root:not([data-theme="light"]) .lv-paid{background:rgba(110,150,240,.18);color:#AFC5F7}:root:not([data-theme="light"]) .lv-sick{background:rgba(238,143,132,.16);color:#F0A399}:root:not([data-theme="light"]) .lv-half{background:rgba(227,184,104,.16);color:#E8C682}:root:not([data-theme="light"]) .lv-unpaid{background:#2A2C31;color:#B9BCC4}:root:not([data-theme="light"]) .lv-excused{background:rgba(108,203,155,.15);color:#8FD8B2}
 :root:not([data-theme="light"]) .ocell.mo.exc.lv-paid{background:rgba(110,150,240,.18);color:#AFC5F7}:root:not([data-theme="light"]) .ocell.mo.exc.lv-sick{background:rgba(238,143,132,.16);color:#F0A399}:root:not([data-theme="light"]) .ocell.mo.exc.lv-excused{background:rgba(108,203,155,.15);color:#8FD8B2}:root:not([data-theme="light"]) .ocell.mo.exc.lv-half{color:#E8C682}:root:not([data-theme="light"]) .ocell.mo.exc.lv-unpaid{color:#B9BCC4}
 :root:not([data-theme="light"]) .ocell.mo.exc.lv-half{background:linear-gradient(135deg,rgba(227,184,104,.22) 50%,var(--surface2) 50%)}
 :root:not([data-theme="light"]) .ocell.mo.exc.lv-unpaid{background:repeating-linear-gradient(135deg,#2A2C31 0 4px,#202226 4px 8px)}
@@ -515,7 +515,7 @@ body{font-size:14.5px;letter-spacing:-.003em}
 :root:not([data-theme="light"]) .seg-b{background:var(--surface);border-color:var(--line)}
 :root:not([data-theme="light"]) .seg-b.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 }
-:root[data-theme="dark"] .lv-paid{background:rgba(110,150,240,.18);color:#AFC5F7}:root[data-theme="dark"] .lv-sick{background:rgba(238,143,132,.16);color:#F0A399}:root[data-theme="dark"] .lv-half{background:rgba(227,184,104,.16);color:#E8C682}:root[data-theme="dark"] .lv-unpaid{background:#2A2C31;color:#B9BCC4}:root[data-theme="dark"] .lv-excused{background:rgba(108,203,155,.15);color:#8FD8B2}
+:root[data-theme="dark"] .lv-holiday,:root[data-theme="dark"] .ocell.mo.exc.lv-holiday{background:rgba(160,120,240,.18);color:#C9B5F5}:root[data-theme="dark"] .lv-paid{background:rgba(110,150,240,.18);color:#AFC5F7}:root[data-theme="dark"] .lv-sick{background:rgba(238,143,132,.16);color:#F0A399}:root[data-theme="dark"] .lv-half{background:rgba(227,184,104,.16);color:#E8C682}:root[data-theme="dark"] .lv-unpaid{background:#2A2C31;color:#B9BCC4}:root[data-theme="dark"] .lv-excused{background:rgba(108,203,155,.15);color:#8FD8B2}
 :root[data-theme="dark"] .ocell.mo.exc.lv-paid{background:rgba(110,150,240,.18);color:#AFC5F7}:root[data-theme="dark"] .ocell.mo.exc.lv-sick{background:rgba(238,143,132,.16);color:#F0A399}:root[data-theme="dark"] .ocell.mo.exc.lv-excused{background:rgba(108,203,155,.15);color:#8FD8B2}:root[data-theme="dark"] .ocell.mo.exc.lv-half{color:#E8C682}:root[data-theme="dark"] .ocell.mo.exc.lv-unpaid{color:#B9BCC4}
 :root[data-theme="dark"] .ocell.mo.exc.lv-half{background:linear-gradient(135deg,rgba(227,184,104,.22) 50%,var(--surface2) 50%)}
 :root[data-theme="dark"] .ocell.mo.exc.lv-unpaid{background:repeating-linear-gradient(135deg,#2A2C31 0 4px,#202226 4px 8px)}
@@ -722,6 +722,7 @@ html.theme-anim,html.theme-anim *,html.theme-anim *::before,html.theme-anim *::a
   <div class="actions"><button class="btn" id="rdCancel">Go back</button><button class="btn no" id="rdAnyway">Save anyway</button></div>
 </dialog>
 <dialog id="empDlg" class="dlg emp-dlg" aria-label="Edit person"></dialog>
+<dialog id="repDlg" class="dlg" aria-label="Download report"></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <!-- LIVE MODE: replace demo.js with this line
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script> -->

@@ -119,10 +119,10 @@ function summarize(emp, ym, att, schedMap, adj){
   c.penalties = c.red + c.black;
   return c;
 }
-function adherenceFor(emp, ym, att, sm, brk){
+function adherenceFor(emp, ym, att, sm, brk, keys){
   const today = dkey(now()), nowM = mins(now());
   let sched = 0, non = 0;
-  for(const k of monthKeys(ym)){
+  for(const k of (keys || monthKeys(ym))){
     if(k > today) break;
     if(emp.since && k < emp.since) continue;
     if(sm[`X|${emp.id}|${k}`] !== undefined) continue;
@@ -171,8 +171,8 @@ function streakPanel(n){
   </section>`;
 }
 const fmtMin = m => m >= 60 ? `${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m` : `${m} min`;
-const LEAVE = { excused:["Excused","Exc"], paid:["Paid leave","PL"], sick:["Sick leave","SL"], half:["Half day, paid","½"], unpaid:["Unpaid day","UP"] };
-const LEAVE_ORDER = ["paid","sick","half","unpaid","excused"];
+const LEAVE = { holiday:["Public holiday","PH"], excused:["Excused","Exc"], paid:["Paid leave","PL"], sick:["Sick leave","SL"], half:["Half day, paid","½"], unpaid:["Unpaid day","UP"] };
+const LEAVE_ORDER = ["holiday","paid","sick","half","unpaid","excused"];
 function chip(st){
   const map = {
     early:[`Early ${st.ahead||""} min, +1 credit`,"early"], ontime:["On time","ontime"],
@@ -677,7 +677,7 @@ views.points = {
     el.innerHTML = `
       <div class="panel" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;justify-content:space-between">
         <label class="f" style="min-width:200px">Month<select id="rSel">${lastMonths(12).map(m=>`<option value="${m}" ${m===this.ym?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label>
-        <div style="display:flex;gap:8px"><button class="btn" id="rRef">Refresh</button><button class="btn primary" id="rCsv">Export CSV</button></div>
+        <div style="display:flex;gap:8px"><button class="btn" id="rRef">Refresh</button><button class="btn primary" id="rXlsx">Download full report</button></div>
       </div>
       <div id="rBody"><p class="muted">Loading</p></div>
       <div class="panel"><h2>Adjust points</h2>
@@ -693,7 +693,7 @@ views.points = {
       <div class="panel"><h2>Adjustments this month</h2><div id="rAdj"></div></div>`;
     $("#rSel").onchange = e => { this.ym = e.target.value; loadTeam(this.ym); };
     $("#rRef").onclick = () => loadTeam(this.ym);
-    $("#rCsv").onclick = () => this.csv();
+    $("#rXlsx").onclick = () => reportDialog();
     $("#jSave").onclick = async e => {
       const reason = $("#jR").value.trim();
       if(!reason){ toast("Add a reason for the adjustment."); return; }
@@ -721,14 +721,7 @@ views.points = {
       if(error){ toast(errMsg(error)); b.disabled = false; return; } toast("Adjustment deleted"); loadTeam(this.ym);
     });
   },
-  csv(){
-    const r = this.rows || []; if(!r.length){ toast("Nothing to export."); return; }
-    const q = x => `"${String(x).replace(/"/g,'""')}"`;
-    const lines = [["Employee","Month","Office days","Remote days","Early","On time","Late","Allowed lates","Absent","Paid leave","Sick leave","Half days","Unpaid days","Excused","Left early","Overtime minutes","Reds cleared","Red","Black","Penalties","Needs review","Adherence %","Streak"].map(q).join(",")];
-    for(const {e,s} of r) lines.push([e.name,this.ym,s.office,s.remote,s.early,s.ontime,s.late,s.allowed,s.absent,s.lv?.paid||0,s.lv?.sick||0,s.lv?.half||0,s.lv?.unpaid||0,s.lv?.excused||0,s.leftEarly||0,s.ot,s.cleared,s.red,s.black,s.penalties,s.review?"Yes":"No",s.adh?s.adh.pct:"",s.streak].map(q).join(","));
-    const url = URL.createObjectURL(new Blob([lines.join("\n")],{type:"text/csv"}));
-    const a = document.createElement("a"); a.href = url; a.download = `opus-points-${this.ym}.csv`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
-  }
+
 };
 
 /* ---------- excuse dialog ---------- */
@@ -772,6 +765,194 @@ views.audit = {
   }
 };
 
+/* ---------- management report (Excel) ---------- */
+let excelLib = null;
+function loadExcel(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  return excelLib ||= new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"; sc.onload = () => res(window.ExcelJS); sc.onerror = () => { excelLib = null; rej(new Error("Could not load the Excel library. Check your connection.")); }; document.head.appendChild(sc); });
+}
+function reportDialog(){
+  const dlg = $("#repDlg"), t = dkey(now()), [y, m] = t.split("-").map(Number);
+  const wd = (wdOf(t) + 6) % 7, mon = new Date(Date.parse(t+"T12:00:00Z") - wd*864e5).toISOString().slice(0,10), sun = new Date(Date.parse(mon+"T12:00:00Z") + 6*864e5).toISOString().slice(0,10);
+  const P = { week:[mon, sun, "This week"], month:[`${t.slice(0,7)}-01`, monthEnd(t.slice(0,7)), monthLabel(t.slice(0,7))], year:[`${y}-01-01`, `${y}-12-31`, String(y)] };
+  let pick = "month";
+  dlg.innerHTML = `<form method="dialog" class="dlg-x"><button class="btn small" aria-label="Close">Close</button></form>
+    <h2>Download full report</h2><p class="small muted" style="margin:-8px 0 14px">Excel workbook with every detail for each person.</p>
+    <div class="de-l">Period</div>
+    <div class="seg" id="rpSeg"><button type="button" class="seg-b" data-v="week">This week</button><button type="button" class="seg-b on" data-v="month">This month</button><button type="button" class="seg-b" data-v="year">This year</button><button type="button" class="seg-b" data-v="custom">Custom dates</button></div>
+    <div class="pl-dates" id="rpCustom" style="margin-top:12px;display:none"><label class="f">From<input type="date" class="inl" id="rpFrom" value="${P.month[0]}"></label><label class="f">To<input type="date" class="inl" id="rpTo" value="${t}"></label></div>
+    <p class="hint" id="rpNote"></p>
+    <div class="actions"><button class="btn" id="rpCancel">Cancel</button><button class="btn primary" id="rpGo">Download</button></div><p class="err" id="rpErr"></p>`;
+  const note = () => { const [a, b] = pick==="custom" ? [$("#rpFrom").value, $("#rpTo").value] : P[pick]; $("#rpNote").textContent = a && b ? `${prettyDate(a)} ${a.slice(0,4)} to ${prettyDate(b)} ${b.slice(0,4)}. Days after today are left out.` : ""; };
+  dlg.querySelectorAll("#rpSeg .seg-b").forEach(b => b.onclick = () => { dlg.querySelectorAll("#rpSeg .seg-b").forEach(x=>x.classList.remove("on")); b.classList.add("on"); pick = b.dataset.v; $("#rpCustom").style.display = pick==="custom" ? "flex" : "none"; note(); });
+  $("#rpFrom").onchange = note; $("#rpTo").onchange = note; note();
+  $("#rpCancel").onclick = () => dlg.close();
+  $("#rpGo").onclick = async () => {
+    let [a, b, label] = pick==="custom" ? [$("#rpFrom").value, $("#rpTo").value, null] : P[pick];
+    if(!a || !b || b < a){ $("#rpErr").textContent = "Pick a valid date range."; return; }
+    if(Date.parse(b) - Date.parse(a) > 400*864e5){ $("#rpErr").textContent = "Pick up to about one year."; return; }
+    label = label || `${prettyDate(a)} ${a.slice(0,4)} to ${prettyDate(b)} ${b.slice(0,4)}`;
+    await exportReport(a, b, label, $("#rpGo")); dlg.close();
+  };
+  dlg.showModal();
+}
+async function fetchAll(make){
+  const out = []; for(let from = 0; ; from += 1000){ const { data, error } = await make().range(from, from + 999); if(error) throw error; out.push(...(data||[])); if(!data || data.length < 1000) break; } return out;
+}
+async function loadRange(a, b){
+  const ma = `${a.slice(0,7)}-01`, mb = monthEnd(b.slice(0,7)), hist = histStart(a.slice(0,7));
+  const months = []; for(let k = ma; k <= mb; ){ months.push(k.slice(0,7)); const [y, m] = k.split("-").map(Number); k = new Date(Date.UTC(y, m, 1)).toISOString().slice(0,10); }
+  const [att, sc, ex, adj, ot, brk] = await Promise.all([
+    fetchAll(() => sb.from("attendance").select("*").gte("day", hist).lte("day", mb).order("day")),
+    fetchAll(() => sb.from("schedule").select("*").gte("day", hist).lte("day", mb).order("day")),
+    fetchAll(() => sb.from("excused").select("*").gte("day", hist).lte("day", mb).order("day")),
+    fetchAll(() => sb.from("adjustments").select("*").in("month", months).order("created_at")),
+    fetchAll(() => sb.from("overtime").select("*").gte("day", a).lte("day", b).order("day")),
+    fetchAll(() => sb.from("breaks").select("*").gte("day", a).lte("day", b).order("started_at"))
+  ]);
+  const d = { months, att:toMap(att, r=>r), sched:toMap(sc, r=>r.shift_id), adj, ot, brk };
+  for(const r of sc) if(r.work_mode) d.sched[`M|${r.employee_id}|${r.day}`] = r.work_mode;
+  for(const r of ex){ d.sched[`X|${r.employee_id}|${r.day}`] = r.reason || ""; d.sched[`XT|${r.employee_id}|${r.day}`] = r.leave_type || "excused"; }
+  return d;
+}
+async function exportReport(from, to, periodLabel, btn){
+  const label = btn.textContent; btn.disabled = true; btn.textContent = "Building report";
+  try{
+    const XL = await loadExcel();
+    const D = await loadRange(from, to);
+    const wb = new XL.Workbook(); wb.creator = me.name; wb.created = new Date();
+    const FONT = { name:"Arial", size:10 }, HEAD = { name:"Arial", size:10, bold:true, color:{ argb:"FFFFFFFF" } };
+    const fill = c => ({ type:"pattern", pattern:"solid", fgColor:{ argb:c } });
+    const thin = { style:"thin", color:{ argb:"FFD9DDE3" } }, border = { top:thin, bottom:thin, left:thin, right:thin };
+    const firstData = Object.values(D.att).map(r => r.day).sort()[0] || from, start = from > firstData ? from : firstData;
+    const today = dkey(now()), keys = rangeKeys(start, to < today ? to : today), allKeys = rangeKeys(start, to);
+    D.months = D.months.filter(ym => ym >= start.slice(0,7));
+    const people = schedPeople(), agents = people.filter(e => e.tracked);
+    const R = RULES(), RN = { senior:"Senior cover", pair:"Not remote together", night:"Morning office cover", consecutive:"No remote days in a row" };
+    const accessOf = e => e.is_admin ? "Full access" : "Member access";
+    const mins2 = (a, b) => a && b ? Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 60000)) : 0;
+    const allowedOf = k => k==="short" ? S.break_short_min : k==="long" ? S.break_long_min : k==="wc" ? S.break_wc_min : null;
+    const brkOf = (eid, k) => D.brk.filter(b => b.employee_id===eid && b.day===k);
+    const STATUS_TXT = { early:"Early credit", ontime:"On time", grace:"Late, within grace", late:"Late", remote:"Remote, on time", remotegrace:"Remote, within grace", remotelate:"Remote, late", absent:"Absent", off:"Day off", pending:"Not checked in yet", excused:"Leave", na:"Before start date", future:"Upcoming" };
+    const monthSum = {}; for(const ym of D.months) for(const e of agents) monthSum[`${e.id}|${ym}`] = summarize(e, ym, D.att, D.sched, D.adj);
+    const dayRow = (e, k) => { const ms = monthSum[`${e.id}|${k.slice(0,7)}`]; return ms?.rows.find(r => r.k === k) || dayStatus(e, k, D.att[`${e.id}|${k}`], D.sched); };
+    const sheet = (name, cols, title, xs = 1) => {
+      const ws = wb.addWorksheet(name, { views:[{ state:"frozen", xSplit:xs, ySplit:3 }], pageSetup:{ orientation:"landscape", paperSize:9, fitToPage:true, fitToWidth:1, fitToHeight:0 } });
+      ws.columns = cols.map(([, w]) => ({ width:w }));
+      ws.getCell("A1").value = title; ws.getCell("A1").font = { name:"Arial", size:14, bold:true };
+      ws.getCell("A2").value = `Opus Support Attendance. Period: ${periodLabel}${start > from ? ` (data starts ${prettyDate(start)} ${start.slice(0,4)})` : ""}. Generated ${longDate(today)} ${tstr(new Date(now()).toISOString())} UAE by ${me.name}.`;
+      ws.getCell("A2").font = { name:"Arial", size:9, italic:true, color:{ argb:"FF667085" } };
+      const hr = ws.getRow(3); cols.forEach(([h], i) => { const c = hr.getCell(i+1); c.value = h; c.font = HEAD; c.fill = fill("FF111827"); c.alignment = { vertical:"middle", horizontal:"center", wrapText:true }; c.border = border; });
+      hr.height = 34; ws.autoFilter = { from:{ row:3, column:1 }, to:{ row:3, column:cols.length } };
+      return ws;
+    };
+    const addRow = (ws, vals, opts={}) => { const r = ws.addRow(vals); r.eachCell({ includeEmpty:true }, (c, i) => { c.font = { ...FONT, ...(opts.bold?{bold:true}:{}) }; c.border = border; c.alignment = { vertical:"middle", horizontal: i===1 || opts.leftCols?.includes(i) ? "left" : "center", wrapText:!!opts.wrap }; if(opts.zebra) c.fill = fill("FFF6F7F9"); }); return r; };
+    const note = (ws, text, color = "FF667085") => { ws.addRow([]); const r = ws.addRow([text]); r.getCell(1).font = { name:"Arial", size:9, italic:true, color:{ argb:color } }; };
+
+    // 1. Summary for the period
+    const sumCols = [["Employee",24],["Title",20],["Access",14],["Email",28],["Usual shift",13],["Scheduled days",10],["Planned office",9],["Planned remote",9],["Worked office",9],["Worked remote",9],["On time",8],["Within grace",9],["Early credits",9],["Late",7],["Late, allowed",9],[`Late over ${S.late_hard_min} min`,10],["Absent",8],["Public holiday",9],["Paid leave",8],["Sick leave",8],["Half day",8],["Unpaid",8],["Excused",8],["Left early (days)",10],["Left early (min)",10],["Overtime approved (min)",11],["Breaks taken",9],["Over-break (times)",10],["Over-break (min)",10],["Meeting (min)",10],["Task (min)",10],["Red (before clears)",10],["Black",8],["Adherence",10],["On-time streak (now)",10]];
+    const ws1 = sheet("Summary", sumCols, `Attendance summary, ${periodLabel}`);
+    agents.forEach((e, idx) => {
+      const c = { sched:0, po:0, pr:0, wo:0, wr:0, ontime:0, grace:0, early:0, late:0, allowed:0, hard:0, absent:0, lv:{}, le:0, leMin:0, ot:0, brk:0, overN:0, overMin:0, meet:0, task:0, red:0, black:0 };
+      for(const k of allKeys){ const sf = shiftFor(e, k, D.sched); if(sf.off || D.sched[`X|${e.id}|${k}`] !== undefined) continue; if(e.since && k < e.since) continue; c.sched++; if(sf.mode==="remote") c.pr++; else c.po++; }
+      for(const k of keys){
+        const rec = D.att[`${e.id}|${k}`], st = dayRow(e, k);
+        if(rec){ if(rec.mode==="remote") c.wr++; else c.wo++; }
+        if(st.s==="ontime") c.ontime++; if(st.s==="grace"||st.s==="remotegrace") c.grace++; if(st.s==="early") c.early++;
+        if(st.s==="late"||st.s==="remotelate"){ c.late++; if(st.allowed) c.allowed++; else if(st.severe==="black") c.black++; else c.red++; if(st.severe) c.hard++; }
+        if(st.s==="absent"){ c.absent++; c.black++; }
+        if(st.s==="excused") c.lv[st.lt] = (c.lv[st.lt]||0) + 1;
+        const le = leftEarlyBy(e, k, rec, D.sched); if(le){ c.le++; c.leMin += le; }
+        for(const b of brkOf(e.id, k)){ const d = mins2(b.started_at, b.ended_at || new Date(now()).toISOString()), al = allowedOf(b.kind); if(b.kind==="meeting") c.meet += d; else if(b.kind==="task") c.task += d; else { c.brk++; if(al && d > al){ c.overN++; c.overMin += d - al; } } }
+      }
+      c.ot = D.ot.filter(o=>o.employee_id===e.id && o.status==="approved").reduce((x,o)=>x+o.minutes,0);
+      const adh = adherenceFor(e, null, D.att, D.sched, D.brk, keys), sh = shifts[e.shift_id];
+      const row = addRow(ws1, [e.name, e.title||"", accessOf(e), e.email||"", sh?`${sh.start}–${sh.end}`:"", c.sched, c.po, c.pr, c.wo, c.wr, c.ontime, c.grace, c.early, c.late, c.allowed, c.hard, c.absent, c.lv.holiday||0, c.lv.paid||0, c.lv.sick||0, c.lv.half||0, c.lv.unpaid||0, c.lv.excused||0, c.le, c.leMin, c.ot, c.brk, c.overN, c.overMin, c.meet, c.task, c.red, c.black, adh ? adh.pct/100 : null, streakFor(e, D.att, D.sched)], { zebra: idx % 2 === 1, leftCols:[2,3,4] });
+      row.getCell(34).numFmt = "0.0%";
+      if(adh) row.getCell(34).font = { ...FONT, bold:true, color:{ argb: adh.pct >= S.adherence_target ? "FF12805C" : adh.pct >= S.adherence_target - 10 ? "FF946200" : "FFC2362B" } };
+      if(c.red) row.getCell(32).font = { ...FONT, bold:true, color:{ argb:"FFC2362B" } };
+    });
+    note(ws1, `Planned = from the schedule for the whole period. Worked = actual check-ins up to today. Red is counted before monthly early-credit clears and adjustments; the Monthly points sheet has the official totals.`);
+
+    // 2. Monthly points (official)
+    const mpCols = [["Month",12],["Employee",24],["Early credits",9],["Late",7],["Late, allowed",9],["Absent",8],["Reds cleared",9],["Adjust red",8],["Adjust black",8],["Red",7],["Black",7],["Penalties",9],["Needs review",9],["Adherence",10]];
+    const ws2 = sheet("Monthly points", mpCols, `Official monthly points, ${periodLabel}`, 2);
+    let zi = 0;
+    for(const ym of D.months) for(const e of agents){
+      const s2 = monthSum[`${e.id}|${ym}`], adh = adherenceFor(e, ym, D.att, D.sched, D.brk);
+      const aR = D.adj.filter(a=>a.employee_id===e.id && a.month===ym && a.type==="red").reduce((x,a)=>x+a.delta,0), aB = D.adj.filter(a=>a.employee_id===e.id && a.month===ym && a.type==="black").reduce((x,a)=>x+a.delta,0);
+      const r = addRow(ws2, [monthLabel(ym), e.name, s2.early, s2.late, s2.allowed, s2.absent, s2.cleared, aR, aB, s2.red, s2.black, s2.penalties, s2.penalties >= S.review_threshold ? "Yes" : "No", adh ? adh.pct/100 : null], { zebra: zi++ % 2 === 1, leftCols:[2] });
+      r.getCell(14).numFmt = "0.0%";
+      if(s2.penalties >= S.review_threshold){ r.getCell(12).fill = fill("FFFDECEA"); [12,13].forEach(n => r.getCell(n).font = { ...FONT, bold:true, color:{ argb:"FFC2362B" } }); }
+    }
+
+    // 3. Daily log
+    const logCols = [["Date",11],["Day",6],["Employee",24],["Scheduled shift",13],["Scheduled from",12],["Day type",14],["Leave note",22],["Checked in",10],["Checked out",10],["Worked from",11],["Distance from office (m)",12],["Status",22],["Late (min)",9],["Left early (min)",10],["Auto check-out",10],["Breaks",8],["Break (min)",9],["Over-break (min)",10],["Meeting (min)",10],["Task (min)",9],["Overtime approved (min)",11]];
+    const ws3 = sheet("Daily log", logCols, `Day-by-day log, ${periodLabel}`, 3);
+    zi = 0;
+    for(const k of keys) for(const e of agents){
+      const sf = shiftFor(e, k, D.sched), ex = D.sched[`X|${e.id}|${k}`], lt = D.sched[`XT|${e.id}|${k}`], rec = D.att[`${e.id}|${k}`];
+      if(sf.off && ex === undefined && !rec) continue;
+      const st = dayRow(e, k); let bn = 0, bm = 0, ov = 0, mt = 0, tk = 0;
+      for(const b of brkOf(e.id, k)){ const d = mins2(b.started_at, b.ended_at || new Date(now()).toISOString()), al = allowedOf(b.kind); if(b.kind==="meeting") mt += d; else if(b.kind==="task") tk += d; else { bn++; bm += d; if(al && d > al) ov += d - al; } }
+      const ot = D.ot.filter(o=>o.employee_id===e.id && o.day===k && o.status==="approved").reduce((x,o)=>x+o.minutes,0);
+      const late = st.by && ["late","remotelate","grace","remotegrace"].includes(st.s) ? st.by : 0;
+      const stTxt = st.s==="excused" ? (LEAVE[st.lt]||LEAVE.excused)[0] : (STATUS_TXT[st.s]||st.s) + (st.severe ? ` (${st.severe})` : st.allowed ? " (allowed)" : "");
+      const r = addRow(ws3, [k, DOW[wdOf(k)], e.name, sf.off ? "Off" : `${sf.sh.start}–${sf.sh.end}`, sf.off ? "" : (sf.mode==="remote"?"Remote":"Office"), ex !== undefined ? LEAVE[lt||"excused"][0] : sf.off ? "Day off" : "Working", ex || "", rec ? tstr(rec.check_in) : "", rec?.check_out ? tstr(rec.check_out) : "", rec ? (rec.mode==="remote"?"Remote":"Office") : "", rec?.in_dist ?? "", stTxt, late || "", leftEarlyBy(e, k, rec, D.sched) || "", rec?.auto_out ? "Yes" : "", bn || "", bm || "", ov || "", mt || "", tk || "", ot || ""], { zebra: zi++ % 2 === 1, leftCols:[3,7,12] });
+      const sc = r.getCell(12);
+      if(["late","remotelate","absent"].includes(st.s)) sc.font = { ...FONT, bold:true, color:{ argb: st.s==="absent" || st.severe==="black" ? "FF1F2937" : "FFC2362B" } };
+      if(st.s==="early") sc.font = { ...FONT, bold:true, color:{ argb:"FF12805C" } };
+      if(ov) r.getCell(18).font = { ...FONT, bold:true, color:{ argb:"FFC2362B" } };
+    }
+
+    // 4-6. Breaks, overtime, adjustments
+    const KN = { short:"Short break", long:"Long break", wc:"WC", meeting:"Meeting", task:"Task / Out of Q" };
+    const ws4 = sheet("Breaks and status", [["Date",11],["Employee",24],["Type",16],["Started",9],["Ended",9],["Minutes",9],["Allowed (min)",10],["Over by (min)",10]], `Every break, meeting and task, ${periodLabel}`);
+    D.brk.forEach((b, i) => { const d = mins2(b.started_at, b.ended_at || new Date(now()).toISOString()), al = allowedOf(b.kind), over = al && d > al ? d - al : "";
+      const r = addRow(ws4, [b.day, enameOf(b.employee_id), KN[b.kind]||b.kind, tstr(b.started_at), b.ended_at ? tstr(b.ended_at) : "Open", d, al ?? "No limit", over], { zebra:i%2===1, leftCols:[2,3] });
+      if(over) r.getCell(8).font = { ...FONT, bold:true, color:{ argb:"FFC2362B" } }; });
+    const ws5 = sheet("Overtime", [["Date",11],["Employee",24],["Minutes",9],["Reason",36],["Status",11],["Decided by",20],["Decided at",18]], `Overtime requests, ${periodLabel}`);
+    D.ot.forEach((o, i) => addRow(ws5, [o.day, enameOf(o.employee_id), o.minutes, o.reason||"", o.status[0].toUpperCase()+o.status.slice(1), o.decided_by||"", o.decided_at ? `${dkey(Date.parse(o.decided_at))} ${tstr(o.decided_at)}` : ""], { zebra:i%2===1, leftCols:[2,4,6], wrap:true }));
+    const ws6 = sheet("Adjustments", [["Month",12],["Employee",24],["Point",8],["Change",8],["Reason",44],["By",22],["When",18]], `Manual point adjustments, ${periodLabel}`);
+    D.adj.forEach((a, i) => addRow(ws6, [monthLabel(a.month), enameOf(a.employee_id), a.type==="red"?"Red":"Black", a.delta > 0 ? "+1" : "-1", a.reason, enameOf(a.created_by) || "", a.created_at ? `${dkey(Date.parse(a.created_at))} ${tstr(a.created_at)}` : ""], { zebra:i%2===1, leftCols:[2,5,6], wrap:true }));
+
+    // 7. Office and remote by week (everyone in the schedule)
+    const weeks = []; for(const k of allKeys){ const wk = new Date(Date.parse(k+"T12:00:00Z") - ((wdOf(k)+6)%7)*864e5).toISOString().slice(0,10); if(!weeks.includes(wk)) weeks.push(wk); }
+    const ws7 = sheet("Office and remote", [["Employee",24],["Title",20], ...weeks.flatMap(w => [[`Week of ${prettyDate(w)} office`,10],[`Week of ${prettyDate(w)} remote`,10]]), ["Total office",9],["Total remote",9]], `Office and remote days per week, ${periodLabel}`, 2);
+    people.forEach((e, i) => { const per = weeks.map(() => [0,0]); let to = 0, tr = 0;
+      for(const k of allKeys){ if(D.sched[`X|${e.id}|${k}`] !== undefined) continue; const sf = shiftFor(e, k, D.sched); if(sf.off) continue; const wi = weeks.indexOf(new Date(Date.parse(k+"T12:00:00Z") - ((wdOf(k)+6)%7)*864e5).toISOString().slice(0,10)); if(sf.mode==="remote"){ per[wi][1]++; tr++; } else { per[wi][0]++; to++; } }
+      addRow(ws7, [e.name, e.title||"", ...per.flat(), to, tr], { zebra:i%2===1, leftCols:[2], bold:false }); });
+    note(ws7, "Counted from the schedule (planned days), leave and days off excluded. Includes seniors and supervisors.");
+
+    // 8. Schedule grid (up to about two months)
+    if(allKeys.length <= 62){
+      const gCols = [["Employee",24],["Title",20], ...allKeys.map(k => [`${DOW[wdOf(k)].slice(0,2)} ${+k.slice(8)}/${+k.slice(5,7)}`, 7])];
+      const ws8 = sheet("Schedule", gCols, `Schedule, ${periodLabel} (R = remote)`, 2);
+      const TONE = ["FFDCE7FF","FFEADFFB","FFD5F1EC"], ids = Object.keys(shifts);
+      people.forEach(e => { const vals = allKeys.map(k => { const ex = D.sched[`X|${e.id}|${k}`]; if(ex !== undefined) return LEAVE[D.sched[`XT|${e.id}|${k}`]||"excused"][1]; const sf = shiftFor(e, k, D.sched); return sf.off ? "Off" : sf.sh.start.slice(0,2) + (sf.mode==="remote" ? " R" : ""); });
+        const r = addRow(ws8, [e.name, e.title||"", ...vals], { leftCols:[2] });
+        allKeys.forEach((k, j) => { const c = r.getCell(j+3), sf = shiftFor(e, k, D.sched), ex = D.sched[`X|${e.id}|${k}`];
+          if(ex !== undefined){ c.fill = fill("FFFFF1D6"); c.font = { ...FONT, bold:true }; } else if(sf.off){ c.fill = fill("FFF2F3F5"); c.font = { ...FONT, color:{ argb:"FF98A2B3" } }; } else { c.fill = fill(TONE[ids.findIndex(x=>shifts[x]===sf.sh) % 3] || "FFFFFFFF"); if(sf.mode==="remote") c.font = { ...FONT, bold:true }; } }); });
+      const iss = D.months.flatMap(ym => checkSchedule(ym, D.sched).issues).filter(x => x.k >= from && x.k <= to);
+      note(ws8, iss.length ? `Rule check: ${iss.length} issue(s). ${iss.slice(0,10).map(x => `${prettyDate(x.k)} ${RN[x.rule]}`).join("; ")}${iss.length > 10 ? "; more in the app." : "."}` : "Rule check: no issues in this period.", iss.length ? "FFC2362B" : "FF12805C");
+    }
+
+    // 9. People, 10. Rules
+    const ws9 = sheet("People", [["Employee",24],["Title",24],["Access",14],["Role",14],["Email",30],["Usual shift",13],["In schedule",10],["Checks in",10],["Counts from",12],["Active",8]], "Team list");
+    emps.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach((e, i) => addRow(ws9, [e.name, e.title||"", accessOf(e), EMP_TYPES[empType(e)].label, e.email||"Not set", shifts[e.shift_id] ? `${shifts[e.shift_id].start}–${shifts[e.shift_id].end}` : "", e.scheduled||e.tracked ? "Yes":"No", e.tracked?"Yes":"No", e.since||"", e.active?"Yes":"No"], { zebra:i%2===1, leftCols:[2,3,4,5] }));
+    const ws10 = sheet("Rules", [["Rule",40],["Value",30]], "Rules used for this report");
+    [["Time zone", S.tz],["Shifts", Object.keys(shifts).map(id=>`${shifts[id].start}–${shifts[id].end}`).join(", ")],["Check-in opens before shift (min)", S.checkin_open_min],["Grace after shift start (min)", S.grace_min],["Allowed late days per month", S.late_allowance],["Late always red after (min)", S.late_hard_min],["Late counts as black after (min)", S.late_black_min],["Early credit window (min before start)", `${S.early_max} to ${S.early_min}`],["Early credits to clear 1 red", S.early_per_clear],["Max clears per month", S.max_clears],["Needs review at (penalties)", S.review_threshold],["Adherence target", S.adherence_target/100],["Breaks per shift", `${S.break_short_count}×${S.break_short_min}, ${S.break_long_count}×${S.break_long_min}, ${S.break_wc_count}×${S.break_wc_min} WC (min)`],["No breaks at shift start and end (min)", S.break_edge_min],["Must stay available", S.min_available],["Office radius (m)", S.radius_m],["Seniors in the office daily", R.min_senior_office],["Never remote together", (R.remote_pairs||[]).map(([a,b])=>`${enameOf(a)} and ${enameOf(b)}`).join("; ")||"None"],["Morning shift office cover", R.night_needs_morning_office?"On":"Off"],["No remote days in a row", R.no_consecutive_remote?"On":"Off"]]
+      .forEach((x, i) => { const r = addRow(ws10, x, { zebra:i%2===1, leftCols:[1,2] }); if(x[0]==="Adherence target") r.getCell(2).numFmt = "0%"; });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const a = document.createElement("a"); a.href = url; a.download = `Opus-Attendance-Report_${from}_to_${to}.xlsx`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    toast("Report downloaded");
+  }catch(e){ toast(errMsg(e)); }
+  btn.disabled = false; btn.textContent = label;
+}
+const rangeKeys = (a, b) => { const out = []; for(let t = Date.parse(a+"T12:00:00Z"), e = Date.parse(b+"T12:00:00Z"); t <= e; t += 864e5) out.push(new Date(t).toISOString().slice(0,10)); return out; };
+
 /* ---------- schedule rules ---------- */
 const RULES = () => ({ min_senior_office:1, night_needs_morning_office:true, no_consecutive_remote:true, remote_pairs:[], ...(S.rules||{}) });
 const roleLabel = e => e?.title || (e?.is_admin ? "Full access" : "Member access");
@@ -798,9 +979,9 @@ function checkSchedule(ym, sm){
         issues.push({ k, rule:"pair", text:`${enameOf(a)} and ${enameOf(b)} are both remote`, people:[a,b], fixes:[{ eid:a, k, mode:"office" },{ eid:b, k, mode:"office" }] });
     }
     if(R.night_needs_morning_office){
-      const night = arr.filter(x=>x.p.night), morn = arr.filter(x=>!x.p.night);
-      if(night.length && !morn.some(x=>x.p.mode==="office"))
-        issues.push({ k, rule:"night", text:"Night shift is working, but nobody on the 08 or 09 shift is in the office", people:morn.map(x=>x.e.id), fixes:morn.map(x=>({ eid:x.e.id, k, mode:"office" })) });
+      const morn = arr.filter(x=>!x.p.night);
+      if(morn.length && !morn.some(x=>x.p.mode==="office"))
+        issues.push({ k, rule:"night", text:"Nobody on the morning shift (08 or 09) is in the office", people:morn.map(x=>x.e.id), fixes:morn.map(x=>({ eid:x.e.id, k, mode:"office" })) });
     }
   }
   if(R.no_consecutive_remote){
@@ -960,10 +1141,10 @@ views.schedule = {
       const tip = `${e.name}, ${prettyDate(k)}: ${ex !== undefined ? LEAVE[lt][0] + (ex ? " ("+ex+")" : "") : sf.off ? "Day off" : sf.sh.start+" to "+sf.sh.end+(sf.mode==="remote"?", remote":", office")+(sf.planned?"":", default")}`;
       return `<td class="mo-c${we}${td}${badCells.has(`${e.id}|${k}`)?" bad":""}"><button class="ocell mo ${cls}" data-e="${e.id}" data-k="${k}" title="${esc(tip)}">${txt}${rem}</button></td>`;
     };
-    const body = list.map(e=>{ const cells = days.map(k=>cell(e,k)).join(""); return `<tr><th class="mo-name">${avatarName(e.name, e.id)}<span class="mo-cnt">${esc(e.title||"")}${e.title?" · ":""}${counts[e.id]||0} days${e.senior?' <span class="sr-tag">Senior</span>':""}</span></th>${cells}</tr>`; }).join("");
+    const body = list.map(e=>{ const cells = days.map(k=>cell(e,k)).join(""); return `<tr><th class="mo-name">${avatarName(e.name, e.id)}<span class="mo-cnt">${esc(e.title||"")}${e.title?" · ":""}${counts[e.id]||0} days</span></th>${cells}</tr>`; }).join("");
     $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="mo-grid"><thead><tr><th class="mo-name"></th>${days.map(k=>`<th class="mo-h${!isWorkday(k)?" we":""}${k===today?" td":""}${badDays.has(k)?" bad":""}"><span>${DOW[wdOf(k)].slice(0,1)}</span><b>${+k.slice(8)}</b></th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="cal-legend">${ids.map(id=>`<span><i class="cal-sw ${tone(id)}"></i>${esc(shiftLabel(id))}</span>`).join("")}<span><i class="cal-sw so"></i>Day off</span>${LEAVE_ORDER.map(t=>`<span><span class="lv-tag lv-${t}">${LEAVE[t][1]}</span>${LEAVE[t][0]}</span>`).join("")}<span><i class="rm lg"></i>Remote</span><span><i class="cal-sw dflt"></i>Default, not set in schedule</span></div>
-      <p class="hint">Rules: at least ${RULES().min_senior_office} senior in the office, ${(RULES().remote_pairs||[]).map(([a,b])=>`${esc(enameOf(a).split(" ")[0])} and ${esc(enameOf(b).split(" ")[0])} not remote together`).join(", ")||"no remote pairs set"}, a morning office cover when night shift works, and no remote days in a row (Friday then Monday counts). Change them in Settings, Team rules.</p>
+      <p class="hint">Rules: at least ${RULES().min_senior_office} senior in the office, ${(RULES().remote_pairs||[]).map(([a,b])=>`${esc(enameOf(a).split(" ")[0])} and ${esc(enameOf(b).split(" ")[0])} not remote together`).join(", ")||"no remote pairs set"}, at least 1 morning shift person in the office, and no remote days in a row (Friday then Monday counts). Change them in Settings, Team rules.</p>
       <p class="hint">Click a day to edit it. Shift-click another day to select a range, across agents too. Ctrl or ⌘-click to add single days. Esc closes the editor.</p>` : `<p class="empty">No tracked employees.</p>`;
     this.sel = this.sel || new Set();
     this.paintSel();
@@ -1229,7 +1410,6 @@ views.settings = {
         </div>
         <p class="small muted" style="margin:12px 0 6px">Default working days (used when the schedule has no entry)</p>
         <div class="days">${DOW.map((n,i)=>`<label><input type="checkbox" data-wd="${i}" ${S.workdays.includes(i)?"checked":""}>${n}</label>`).join("")}</div>
-        <label class="f" style="margin-top:12px">Public holidays (YYYY-MM-DD, one per line)<textarea id="sHol" rows="3">${esc((S.holidays||[]).join("\n"))}</textarea></label>
       </div>
       <div class="panel"><h2>Breaks</h2>
         <div class="grid">
@@ -1250,7 +1430,7 @@ views.settings = {
           <label class="f">Seniors in the office every working day<input type="number" min="0" max="5" id="rSen" value="${RULES().min_senior_office}"></label>
         </div>
         <div class="stack-12">
-          <label class="chk"><input type="checkbox" id="rNight" ${RULES().night_needs_morning_office?"checked":""}>When the night shift works, someone on the 08 or 09 shift must be in the office</label>
+          <label class="chk"><input type="checkbox" id="rNight" ${RULES().night_needs_morning_office?"checked":""}>Someone on the morning shift (08 or 09) is in the office every working day</label>
           <label class="chk"><input type="checkbox" id="rCons" ${RULES().no_consecutive_remote?"checked":""}>Nobody works remote two working days in a row (Friday then Monday counts)</label>
         </div>
         <p class="small muted" style="margin:14px 0 6px">Never remote on the same day</p>
@@ -1275,8 +1455,6 @@ views.settings = {
     $("#rpAdd").onclick = () => { const x = $("#rpA").value, y = $("#rpB").value; if(x===y){ toast("Pick two different people."); return; } if(this.pairs.some(([p,q])=>(p===x&&q===y)||(p===y&&q===x))){ toast("That pair is already there."); return; } this.pairs.push([x,y]); paintPairs(); toast("Pair added. Save settings to apply."); };
     $("#sHere").onclick = async () => { try{ const p = await getPos(); $("#sLat").value = p.coords.latitude.toFixed(6); $("#sLng").value = p.coords.longitude.toFixed(6); toast("Location set. Save to apply."); }catch(e){ toast(errMsg(e)); } };
     $("#sSave").onclick = async e => {
-      const hol = $("#sHol").value.split(/\s+/).map(x=>x.trim()).filter(Boolean);
-      if(hol.some(h=>!/^\d{4}-\d{2}-\d{2}$/.test(h))){ toast("Holidays must use YYYY-MM-DD."); return; }
       if(+$("#sEMax").value <= +$("#sEarly").value){ toast("Early credit 'from' must be more minutes than 'until'."); return; }
       const lat = parseFloat($("#sLat").value), lng = parseFloat($("#sLng").value);
       if(isNaN(lat) || isNaN(lng)){ toast("Enter the office latitude and longitude."); return; }
@@ -1284,7 +1462,7 @@ views.settings = {
         grace_min: Math.max(0, +$("#sGrace").value||0), early_min: Math.max(1, +$("#sEarly").value||10), early_max: Math.max(2, +$("#sEMax").value||15), early_per_clear: Math.max(1, Math.round(+$("#sPer").value||3)), max_clears: Math.max(0, Math.round(+$("#sMaxC").value||0)), late_allowance: Math.max(0, Math.round(+$("#sAllow").value||0)),
         late_hard_min: Math.max(1, +$("#sHard").value||30), late_black_min: Math.max(1, +$("#sBlackL").value||120), checkin_open_min: Math.max(0, +$("#sOpen").value||0),
         early_leave_min: Math.max(0, +$("#sLeave").value||0), review_threshold: Math.max(1, +$("#sRev").value||3), adherence_target: Math.min(100, Math.max(50, +$("#sAdh").value||90)),
-        workdays: [...document.querySelectorAll("[data-wd]")].filter(x=>x.checked).map(x=>+x.dataset.wd), holidays: hol,
+        workdays: [...document.querySelectorAll("[data-wd]")].filter(x=>x.checked).map(x=>+x.dataset.wd),
         office_lat: lat, office_lng: lng, radius_m: Math.max(50, +$("#sRad").value||500),
         break_short_min: Math.max(1, +$("#sBsm").value||15), break_short_count: Math.max(0, Math.round(+$("#sBsc").value||0)),
         break_long_min: Math.max(1, +$("#sBlm").value||30), break_long_count: Math.max(0, Math.round(+$("#sBlc").value||0)),
@@ -1343,12 +1521,12 @@ views.guide = {
       </div>
       <p class="hint">Something wrong? Open <b>Help</b> in the menu.</p>`;
     const full = me.is_admin ? `
-      ${flow([["Weekly plan","Shifts and remote days, pick the dates"],["Fix days","Click a day in Month overview"],["Rule check","Keep it at 100%"],["Review","Points report at month end"]])}
+      ${flow([["Weekly plan","Shifts and remote days, pick the dates"],["Fix days","Click a day in Month overview"],["Rule check","Keep it at 100%"],["Review","Download full report: week, month, year or custom dates"]])}
       <div class="tcs">
-        ${topic("schedule","Schedule rules",[`${R.min_senior_office} senior in the office daily (${esc(seniors)})`,`Never remote together: ${esc(pairs)}`,R.night_needs_morning_office?"Night shift on: 08 or 09 shift in the office":"Morning cover rule off",R.no_consecutive_remote?"No remote days in a row (Fri then Mon counts)":"Back-to-back remote allowed"])}
+        ${topic("schedule","Schedule rules",[`${R.min_senior_office} senior in the office daily (${esc(seniors)})`,`Never remote together: ${esc(pairs)}`,R.night_needs_morning_office?"Morning shift (08 or 09): at least 1 in the office daily":"Morning office rule off",R.no_consecutive_remote?"No remote days in a row (Fri then Mon counts)":"Back-to-back remote allowed"])}
         ${topic("checkin","Editing days",["Click a day; Shift-click for a range","Ctrl or ⌘-click adds days","Weekly plan replaces day edits in its dates"])}
         ${topic("people","Access",["<b>Full access</b>: seniors, supervisors, managers, heads","<b>Member access</b>: agents","Seniors and supervisors are in the schedule only"])}
-        ${topic("live","Daily",["Live board: who is available","Attendance today: approve overtime","Points report: adjust with a reason"])}
+        ${topic("live","Daily",["Live board: who is available","Attendance today: approve overtime","Points report: adjust with a reason, download the full Excel report"])}
         ${topic("settings","Rules",["Settings → Team rules holds every number","This guide updates itself from it"])}
       </div>` : "";
     el.innerHTML = `

@@ -108,6 +108,8 @@
     lte(c,v){ this.f.push(r=>r[c]<=v); return this; }
     order(c,o){ this.ord=[c, !(o && o.ascending===false)]; return this; }
     limit(n){ this.lim=n; return this; }
+    range(a,b){ this.rng=[a,b]; return this; }
+    in(c,v){ this.f.push(r=>v.map(String).includes(String(r[c]))); return this; }
     maybeSingle(){ this.one="maybe"; return this; }
     single(){ this.one="single"; return this; }
     insert(p){ this.op="insert"; this.payload=p; return this; }
@@ -122,6 +124,7 @@
         let out = visible(this.t, rows.filter(match)).map(r=>({...r}));
         if(this.ord){ const [c,asc] = this.ord; out.sort((a,b)=> (a[c]>b[c]?1:a[c]<b[c]?-1:0) * (asc?1:-1)); }
         if(this.lim) out = out.slice(0, this.lim);
+        if(this.rng) out = out.slice(this.rng[0], this.rng[1]+1);
         return { data: this.one ? (out[0]||null) : out, error:null };
       }
       if(this.op==="insert"){
@@ -197,7 +200,7 @@
     if(name==="set_excused"){
       if(!m.is_admin) return fail("Only managers can excuse days.");
       DB.excused = DB.excused.filter(r=>!(r.employee_id===a.p_employee && r.day===a.p_day));
-      const LBL = { paid:"Paid leave", sick:"Sick leave", half:"Half day, paid", unpaid:"Unpaid day", excused:"Excused" };
+      const LBL = { holiday:"Public holiday", paid:"Paid leave", sick:"Sick leave", half:"Half day, paid", unpaid:"Unpaid day", excused:"Excused" };
       if(a.p_excused){ DB.excused.push({ employee_id:a.p_employee, day:a.p_day, reason:a.p_reason||null, leave_type:a.p_type||"excused" }); audit(LBL[a.p_type||"excused"], nameOf(a.p_employee), a.p_day + (a.p_reason ? ": "+a.p_reason : "")); }
       else audit("Set back to working day", nameOf(a.p_employee), a.p_day);
       save(); return { data:null, error:null };
