@@ -73,7 +73,6 @@
       breaks.push({ id:bid++, employee_id:r0.employee_id, day:r0.day, kind:"long", started_at:new Date(st).toISOString(), ended_at:new Date(st + (30+over)*60000).toISOString() }); }
     breaks.push({ id:4, employee_id:"e5", day:today, kind:"meeting", started_at:nowIso(48), ended_at:null });
     breaks.push({ id:3, employee_id:"e1", day:today, kind:"short", started_at:nowIso(100), ended_at:nowIso(86) });
-    const overtime = [{ id:1, employee_id:"e4", day:today, minutes:60, reason:"Long escalation with a customer", status:"pending", decided_by:null, decided_at:null, created_at:new Date().toISOString() }];
     const adjustments = [{ id:1, employee_id:"e3", month:prev, type:"red", delta:-1, reason:"System outage, late check-in excused", created_by:"m1", created_at:new Date().toISOString() }];
     const excused = [{ employee_id:"e3", day: days.find(k=>k.slice(0,7)===prev && new Date(k+"T12:00:00Z").getUTCDay()===3) || days[0], reason:"Doctor appointment", created_at:new Date().toISOString() }];
     const audit_log = [
@@ -81,7 +80,7 @@
       { id:2, at:new Date(Date.now()-86400000).toISOString(), actor_name:"Ahmed Kamal", actor_email:"ahmed@demo.aaico.com", action:"Adjusted points", target:"Moataz Noamani", details:prev+": -1 red. Reason: System outage, late check-in excused" },
       { id:3, at:new Date(Date.now()-3600000*5).toISOString(), actor_name:"System", actor_email:null, action:"Auto check-out", target:"Asem Elsebaey", details:"yesterday at 18:01" }
     ];
-    return { settings:[S], shifts, employees, schedule, attendance, adjustments, breaks, excused, audit_log, overtime, issues:[], files:{}, _seq:10 };
+    return { settings:[S], shifts, employees, schedule, attendance, adjustments, breaks, excused, audit_log, issues:[], files:{}, _seq:10 };
   }
   let DB;
   try{ DB = JSON.parse(sessionStorage.getItem(KEY)); }catch{}
@@ -93,7 +92,7 @@
   const visible = (t, rows) => {
     const m = meRow(); if(m.is_admin) return rows;
     if(t==="employees") return rows.filter(r=>r.id===m.id);
-    if(["attendance","schedule","adjustments","excused","overtime","issues"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
+    if(["attendance","schedule","adjustments","excused","issues"].includes(t)) return rows.filter(r=>r.employee_id===m.id);
     if(t==="audit_log") return [];
     return rows;
   };
@@ -251,18 +250,6 @@
       DB.issues = DB.issues || [];
       const r = { id:DB._seq++, employee_id:m.id, category:a.p_category, message:a.p_message, page:a.p_page, user_agent:a.p_user_agent, created_at:new Date().toISOString() };
       DB.issues.push(r); save(); return { data:{...r}, error:null };
-    }
-    if(name==="request_overtime"){
-      if(!DB.attendance.some(r=>r.employee_id===m.id && r.day===today && !r.check_out)) return fail("You need to be checked in to extend your shift.");
-      if(DB.overtime.some(o=>o.employee_id===m.id && o.day===today && o.status==="pending")) return fail("You already have a pending request today.");
-      const r = { id:DB._seq++, employee_id:m.id, day:today, minutes:a.p_minutes, reason:a.p_reason||null, status:"pending", decided_by:null, decided_at:null, created_at:new Date().toISOString() };
-      DB.overtime.push(r); audit("Requested overtime", m.name, `${a.p_minutes} min${a.p_reason?". Reason: "+a.p_reason:""}`); save(); return { data:{...r}, error:null };
-    }
-    if(name==="decide_overtime"){
-      if(!m.is_admin) return fail("Only managers can decide overtime.");
-      const o = DB.overtime.find(x=>x.id===a.p_id && x.status==="pending"); if(!o) return fail("This request was already decided.");
-      o.status = a.p_approve ? "approved" : "rejected"; o.decided_by = m.name; o.decided_at = new Date().toISOString();
-      audit(a.p_approve ? "Approved overtime" : "Rejected overtime", nameOf(o.employee_id), `${o.day}: ${o.minutes} min`); save(); return { data:{...o}, error:null };
     }
     if(name==="check_out"){
       DB.breaks.filter(b=>b.employee_id===m.id && !b.ended_at).forEach(b=>b.ended_at=new Date().toISOString());
