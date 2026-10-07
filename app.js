@@ -378,6 +378,18 @@ function tickBreaks(){
 const STATUS = { available:["Available","available"], break:["On break","break"], over:["Over break","over"], busy:["Busy","busy"], notin:["Not checked in","notin"], done:["Checked out","done"], off:["Day off","off"] };
 const timerSpan = r => (r.break_kind==="meeting"||r.break_kind==="task") ? `<span data-bup="${Date.parse(r.break_started)}"></span>` : `<span data-bstart="${Date.parse(r.break_started)}" data-ballow="${r.break_allowed}"></span>`;
 let boardPrev = {};
+/* Full access: set an agent's status. Available doubles as "Back" when they are on a break. */
+function statusControls(r, st){
+  const cur = st.s === "busy" ? r.break_kind : st.s === "available" ? "available" : "break";
+  const btn = (v, l) => `<button type="button" class="seg-b ${cur===v?"on":""}" data-setst="${r.employee_id}:${v}" ${cur===v?"disabled":""}>${l}</button>`;
+  return `<div class="pc-set"><span class="small muted">Set status</span><div class="seg">${btn("available", cur==="break" ? "Back" : "Available")}${btn("task","Task")}${btn("meeting","Meeting")}</div></div>`;
+}
+async function setAgentStatus(id, status, btn){
+  btn.disabled = true;
+  const { error } = await sb.rpc("admin_set_status", { p_employee:id, p_status:status });
+  if(error){ toast(errMsg(error)); btn.disabled = false; return; }
+  toast("Status updated"); await refreshLive();
+}
 /* The live board: counts plus one card per person. Paints into #lvBody, shown on both Today pages. */
 function paintBoard(){
     if(!$("#lvBody") || !liveLoaded) return;
@@ -402,7 +414,9 @@ function paintBoard(){
           ${st.s==="busy" ? `<div class="pc-timer">${breakName(r)} for ${timerSpan(r)}</div>` : ""}
           ${me.is_admin && r.check_out && !r.auto_out && (pHM(short(r.shift_end)) - mins(ts(r.check_out))) > S.early_leave_min ? `<div class="flag-red">Left early, ${fmtMin(pHM(short(r.shift_end)) - mins(ts(r.check_out)))} before ${short(r.shift_end)}</div>` : ""}
           ${r.check_in && !r.check_out ? breaksLeftHtml(left) : ""}
+          ${me.is_admin && r.check_in && !r.check_out ? statusControls(r, st) : ""}
         </div>`; }).join("")}</div>`;
+    document.querySelectorAll("#lvBody [data-setst]").forEach(b => b.onclick = () => { const [id, status] = b.dataset.setst.split(":"); setAgentStatus(id, status, b); });
     tickBreaks();
     const prev = boardPrev; boardPrev = {};
     document.querySelectorAll("#lvBody .pcard").forEach(c => { boardPrev[c.dataset.eid] = c.dataset.st; if(prev[c.dataset.eid] && prev[c.dataset.eid] !== c.dataset.st) replay(c, "changed"); });
@@ -1566,7 +1580,7 @@ views.guide = {
         ${topic("schedule","Schedule rules",[`${R.min_senior_office} senior in the office daily (${esc(seniors)})`,`Never remote together: ${esc(pairs)}`,R.night_needs_morning_office?"Morning shift (08 or 09): at least 1 in the office daily":"Morning office rule off",R.no_consecutive_remote?"No remote days in a row (Fri then Mon counts)":"Back-to-back remote allowed"])}
         ${topic("checkin","Editing days",["Click a day; Shift-click for a range","Ctrl or ⌘-click adds days","Weekly plan replaces day edits in its dates"])}
         ${topic("people","Access",["<b>Full access</b>: seniors, supervisors, managers, heads","<b>Member access</b>: agents","Seniors and supervisors are in the schedule only","Add people or change roles in People"])}
-        ${topic("live","Daily",["Today: live board, check-ins and overtime approvals","Reports: adjust points with a reason, download the Excel report or a quick CSV","Reports, Activity log: every change, by whom and when"])}
+        ${topic("live","Daily",["Today: live board, check-ins and overtime approvals","Live board: set any agent to Available, Back, Task or Meeting","Reports: adjust points with a reason, download the Excel report or a quick CSV","Reports, Activity log: every change, by whom and when"])}
         ${topic("settings","Rules",["People → Team rules holds every number","This guide updates itself from it"])}
       </div>` : "";
     el.innerHTML = `

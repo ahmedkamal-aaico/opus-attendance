@@ -115,6 +115,9 @@ label.chk{display:flex;align-items:center;gap:8px;font-size:14px}
 .hero.is-over .brk-time{color:inherit}
 .hero .brk-time{margin-top:8px}
 .hero-btn{display:flex;gap:8px;flex-wrap:wrap}
+.pc-set{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.pc-set .seg-b{padding:4px 10px;font-size:12.5px}
+.seg-b:disabled{cursor:default}
 .tour-text{font-size:15.5px;line-height:1.55;margin:0 0 16px}
 .tour-dots{display:flex;gap:6px}
 .tour-dots i{width:8px;height:8px;border-radius:50%;background:var(--line)}
@@ -698,10 +701,10 @@ html.theme-anim,html.theme-anim *,html.theme-anim *::before,html.theme-anim *::a
 <dialog id="tourDlg" class="dlg" aria-label="Quick tour"></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
-/* Live data by default. Add ?demo to the address to preview with sample data (demo.js). */
-document.write(/[?&]demo(=|&|$)/.test(location.search)
-  ? '<script src="/demo.js"><\/script>'
-  : '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"><\/script>');
+/* Sample data (demo.js) by default. Add ?live to the address to use the real Supabase data. */
+document.write(/[?&]live(=|&|$)/.test(location.search)
+  ? '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"><\/script>'
+  : '<script src="/demo.js"><\/script>');
 </script>
 <script src="/app.js"></script>
 </body>

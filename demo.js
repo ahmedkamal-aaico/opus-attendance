@@ -237,6 +237,15 @@
       const b = DB.breaks.find(x=>x.employee_id===m.id && !x.ended_at); if(!b) return fail("You are not on a break.");
       b.ended_at = new Date().toISOString(); save(); return { data:{...b}, error:null };
     }
+    if(name==="admin_set_status"){
+      if(!m.is_admin) return fail("Only managers can change someone's status.");
+      if(!["available","meeting","task"].includes(a.p_status)) return fail("Invalid status.");
+      if(!DB.attendance.some(r=>r.employee_id===a.p_employee && r.day===today && !r.check_out)) return fail("This person is not checked in right now.");
+      DB.breaks.filter(b=>b.employee_id===a.p_employee && !b.ended_at).forEach(b=>b.ended_at=new Date().toISOString());
+      let r = null;
+      if(a.p_status !== "available"){ r = { id:DB._seq++, employee_id:a.p_employee, day:today, kind:a.p_status, started_at:new Date().toISOString(), ended_at:null }; DB.breaks.push(r); }
+      audit("Changed status", nameOf(a.p_employee), "Set to "+a.p_status); save(); return { data:r && {...r}, error:null };
+    }
     if(name==="set_my_avatar"){ const e = DB.employees.find(x=>x.id===m.id); e.avatar_url = a.p_url; save(); return { data:null, error:null }; }
     if(name==="report_issue"){
       DB.issues = DB.issues || [];
