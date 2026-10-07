@@ -98,6 +98,27 @@ label.chk{display:flex;align-items:center;gap:8px;font-size:14px}
 #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw}
 #toast.show{opacity:1}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
+/* ===== merged pages ===== */
+.pagehead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.help-btn{border-radius:999px;width:32px;height:32px;padding:0;font-weight:600;flex:none}
+.sec-h{font-size:15px;font-weight:600;margin:18px 0 10px}
+.sec-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px}
+.sec-row .sec-h{margin:12px 0 10px}
+.today-month{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px}
+.fold>summary{cursor:pointer;display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;list-style:none}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary h2{margin:0}
+.fold>summary::after{content:"Show";font-size:12.5px;color:var(--muted)}
+.fold[open]>summary::after{content:"Hide"}
+.fold[open]>summary{margin-bottom:12px}
+.hero.is-over{outline:3px solid var(--red);outline-offset:-3px}
+.hero.is-over .brk-time{color:inherit}
+.hero .brk-time{margin-top:8px}
+.hero-btn{display:flex;gap:8px;flex-wrap:wrap}
+.tour-text{font-size:15.5px;line-height:1.55;margin:0 0 16px}
+.tour-dots{display:flex;gap:6px}
+.tour-dots i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.tour-dots i.on{background:var(--accent)}
 </style>
 <style>
 [hidden]{display:none!important}
@@ -660,7 +681,7 @@ html.theme-anim,html.theme-anim *,html.theme-anim *::before,html.theme-anim *::a
     <div class="sb-shift" id="sbShift" hidden></div>
   </aside>
   <div class="content">
-    <header class="pagehead"><h1 id="pgTitle"></h1><p id="pgSub"></p></header>
+    <header class="pagehead"><div><h1 id="pgTitle"></h1><p id="pgSub"></p></div><button class="btn small help-btn" id="helpBtn" aria-label="How it works" title="How it works">?</button></header>
     <div id="alertbar" class="alertbar" role="alert" hidden></div>
     <main id="main"></main>
   </div>
@@ -674,10 +695,30 @@ html.theme-anim,html.theme-anim *,html.theme-anim *::before,html.theme-anim *::a
 </dialog>
 <dialog id="empDlg" class="dlg emp-dlg" aria-label="Edit person"></dialog>
 <dialog id="repDlg" class="dlg" aria-label="Download report"></dialog>
+<dialog id="tourDlg" class="dlg" aria-label="Quick tour"></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
-<!-- LIVE MODE: replace demo.js with this line
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script> -->
-<script src="/demo.js"></script>
-<script src="/app.js"></script>
+<script>
+/* Live data by default. Add ?demo to the address to preview with sample data (demo.js). */
+document.write(/[?&]demo(=|&|$)/.test(location.search)
+  ? '<script src="/demo.js"><\/script>'
+  : '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"><\/script>');
+</script>
+<script src="/js/core.js"></script>
+<script src="/js/ui.js"></script>
+<script src="/js/points.js"></script>
+<script src="/js/data.js"></script>
+<script src="/js/shell.js"></script>
+<script src="/js/live.js"></script>
+<script src="/js/today.js"></script>
+<script src="/js/month.js"></script>
+<script src="/js/ops.js"></script>
+<script src="/js/reports.js"></script>
+<script src="/js/export.js"></script>
+<script src="/js/rules.js"></script>
+<script src="/js/schedule.js"></script>
+<script src="/js/people.js"></script>
+<script src="/js/account.js"></script>
+<script src="/js/tour.js"></script>
+<script src="/js/boot.js"></script>
 </body>
 </html>
