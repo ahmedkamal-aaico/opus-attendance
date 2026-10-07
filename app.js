@@ -43,6 +43,13 @@ let emps = [];                 // admin: all employees
 const mine = { att:{}, sched:{}, adj:[] , ym:null };
 const team = { ym:null, att:{}, sched:{}, adj:[], alerts:{}, loading:false };
 const shiftLabel = id => shifts[id] ? `${shifts[id].start} to ${shifts[id].end}` : "No shift";
+/* ---------- check-in ---------- */
+const photos = {};
+function avatar(name, id){ if(id && photos[id]) return `<img class="av" src="${esc(photos[id])}" alt="">`; const n = String(name||"?"); let h = 0; for(const c of n) h = (h*31 + c.charCodeAt(0)) % 360;
+  const ini = n.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase();
+  return `<span class="av" style="--h:${h}">${esc(ini)}</span>`; }
+const avatarName = (n, id) => `<span class="avn">${avatar(n, id)}<span>${esc(n)}</span></span>`;
+const modeChip = m => `<span class="mode-chip ${m}">${m==="remote" ? '<svg viewBox="0 0 24 24"><path d="M4 11l8-6 8 6v9H4z"/><path d="M10 20v-5h4v5"/></svg>Remote' : '<svg viewBox="0 0 24 24"><path d="M4 20V8l8-4 8 4v12"/><path d="M9 20v-5h6v5"/></svg>Office'}</span>`;
 
 function isWorkday(k){ return (S.workdays||[]).includes(wdOf(k)) && !(S.holidays||[]).includes(k); }
 function shiftFor(emp, k, schedMap){
@@ -260,25 +267,42 @@ const ICONS = {
   help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17v.5"/>',
   settings:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'
 };
+/* Sidebar tab -> icon. Section icons are reused from ICONS above. */
+const TAB_ICON = { today:"checkin", month:"mine", ops:"live", reports:"points", schedule:"schedule", people:"people", account:"profile" };
 function tabsFor(){
-  const t = [];
-  if(me?.tracked) t.push(["head","My work"],["checkin","Check in"],["breaks","Status"],["live","Live board"],["mine","My points"],["myschedule","My schedule"]);
-  if(me?.is_admin){ t.push(["head","Manage"]); if(!me.tracked) t.push(["live","Live board"]); t.push(["team","Attendance today"],["points","Reports"],["schedule","Schedule"],["people","Employees"],["audit","Activity log"]); }
-  if(me) t.push(["head","Account"], ...(me.scheduled && !me.tracked ? [["myschedule","My schedule"]] : []), ["profile","Settings"],["guide","How it works"],["help","Help"]);
+  const t = [], both = !!(me?.tracked && me?.is_admin);
+  if(me?.tracked){ if(both) t.push(["head","My work"]); t.push(["today","Today"],["month","My month"]); }
+  if(me?.is_admin){ if(both) t.push(["head","Manage"]); t.push(["ops", me.tracked ? "Team today" : "Today"],["schedule","Schedule"],["reports","Reports"],["people","People"]); }
+  if(me){ if(both) t.push(["head","Account"]); t.push(["account","Account"]); }
   return t;
 }
 function renderTabs(){
   const t = tabsFor();
   if(!tab || !t.some(x=>x[0]===tab)) tab = t.find(x=>x[0]!=="head")?.[0];
   $("#tabs").innerHTML = t.map(([k,l]) => k==="head" ? `<div class="side-head">${l}</div>` :
-    `<button role="tab" aria-selected="${tab===k}" data-t="${k}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]||""}</svg><span>${l}</span></button>`).join("");
+    `<button role="tab" aria-selected="${tab===k}" data-t="${k}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[TAB_ICON[k]||k]||""}</svg><span>${l}</span></button>`).join("");
   $("#tabs").querySelectorAll("button").forEach(x => x.onclick = () => setTab(x.dataset.t));
 }
 const PAGES = {
-  checkin:["Check in","Your shift today and this month so far."], breaks:["Status","Breaks, meetings and tasks. Someone always stays available."],
-  live:["Live board","Who is available right now."], mine:["My points","Your points, history and streak."], myschedule:["My schedule","Your shifts and where you work."],
-  team:["Attendance today","Check-ins, early leaves and overtime requests."], points:["Reports","Points, adherence and the full Excel report."], schedule:["Schedule","Shifts, work location and excused days."],
-  people:["Employees","Team list, roles and defaults."], audit:["Activity log","Every change, with who made it and when."], settings:["Settings","Rules, breaks and the office location."], profile:["Settings","Your account and the team rules."], guide:["How it works","The short version of how everything works."], help:["Help","Something not working? Tell the developer."] };
+  today:["Today","Check in, take breaks and see who is available."], month:["My month","Your points and your schedule."],
+  ops:["Today","Who is here, live status and overtime requests."], schedule:["Schedule","Shifts, work location and excused days."],
+  reports:["Reports","Points, adherence, the Excel report and the activity log."], people:["People","Employees and the team rules."],
+  account:["Account","Your profile, how it works and help."] };
+/* A page made of sub-sections (pill row on top). subs() returns [[key, label, view], ...]. */
+function sectionsView(subs){
+  return {
+    sub:null, cur:null,
+    mount(el){
+      this.el = el; const list = subs();
+      if(!list.some(s => s[0] === this.sub)) this.sub = list[0][0];
+      el.innerHTML = `${list.length > 1 ? `<div class="seg set-tabs" data-subs>${list.map(([k,l]) => `<button type="button" class="seg-b ${k===this.sub?"on":""}" data-v="${k}">${l}</button>`).join("")}</div>` : ""}<div id="subBody"></div>`;
+      el.querySelectorAll("[data-subs] .seg-b").forEach(b => b.onclick = () => { this.sub = b.dataset.v; this.mount(el); replay($("#subBody"), "pg-in"); countUp($("#subBody")); });
+      this.cur = list.find(s => s[0] === this.sub)[2]; this.cur.mount($("#subBody"));
+    },
+    update(){ if(this.cur && this.cur.update) this.cur.update(); }
+  };
+}
+function goTo(t, sub){ if(sub && views[t]) views[t].sub = sub; setTab(t); }
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 function replay(el, cls){ if(!el || reduceMotion()) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 function countUp(root){
@@ -293,7 +317,8 @@ function countUp(root){
 }
 function setTab(t){
   closeDayEditor(); tab = t; renderTabs(); paintSideShift();
-  const p = PAGES[t] || ["",""]; $("#pgTitle").textContent = p[0]; $("#pgSub").textContent = p[1];
+  const p = PAGES[t] || ["",""], lbl = tabsFor().find(x => x[0] === t);
+  $("#pgTitle").textContent = lbl ? lbl[1] : p[0]; $("#pgSub").textContent = p[1];
   views[tab].mount($("#main")); window.scrollTo(0,0);
   replay($("#main"), "pg-in"); replay($(".pagehead"), "pg-in"); countUp($("#main"));
 }
@@ -319,7 +344,7 @@ async function refreshLive(){
   if(error) return;
   live = data || []; liveLoaded = true;
   for(const r of live){ if(r.avatar_url) photos[r.employee_id] = r.avatar_url; else delete photos[r.employee_id]; }
-  if(["live","checkin","breaks"].includes(tab)) update();
+  if(["today","ops"].includes(tab)) update();
   paintAlerts();
 }
 function breaksLeft(r){ return { short: Math.max(0, S.break_short_count - (r?.short_used||0)), long: Math.max(0, S.break_long_count - (r?.long_used||0)), wc: Math.max(0, S.break_wc_count - (r?.wc_used||0)) }; }
@@ -334,7 +359,7 @@ function paintAlerts(){
   const bar = $("#alertbar"); if(!bar) return;
   const msgs = [];
   const mineRow = live.find(r => r.employee_id === me?.id);
-  if(mineRow){ const st = liveState(mineRow); if(st.s==="over") msgs.push(`You are ${Math.floor((st.el-st.allowed)/60)} min over your break. End it from the Status tab.`); }
+  if(mineRow){ const st = liveState(mineRow); if(st.s==="over") msgs.push(`You are ${Math.floor((st.el-st.allowed)/60)} min over your break. End it from the Today tab.`); }
   if(me?.is_admin) for(const r of live){ if(r.employee_id===me.id) continue; const st = liveState(r); if(st.alert) msgs.push(`${r.name} is ${Math.floor((st.el-st.allowed)/60)} min over break.`); }
   bar.hidden = !msgs.length; bar.innerHTML = msgs.map(m=>`<div>${esc(m)}</div>`).join("");
   document.title = msgs.length ? "Over break | Opus Support Attendance" : "Opus Support Attendance | Applied AI";
@@ -352,10 +377,10 @@ function tickBreaks(){
 }
 const STATUS = { available:["Available","available"], break:["On break","break"], over:["Over break","over"], busy:["Busy","busy"], notin:["Not checked in","notin"], done:["Checked out","done"], off:["Day off","off"] };
 const timerSpan = r => (r.break_kind==="meeting"||r.break_kind==="task") ? `<span data-bup="${Date.parse(r.break_started)}"></span>` : `<span data-bstart="${Date.parse(r.break_started)}" data-ballow="${r.break_allowed}"></span>`;
-views.live = {
-  mount(el){ this.el = el; el.innerHTML = `<div id="lvBody"><p class="muted">Loading</p></div>`; refreshLive(); this.update(); },
-  update(){
-    if(tab!=="live" || !liveLoaded) return;
+let boardPrev = {};
+/* The live board: counts plus one card per person. Paints into #lvBody, shown on both Today pages. */
+function paintBoard(){
+    if(!$("#lvBody") || !liveLoaded) return;
     const rows = live.map(r => ({ r, st: liveState(r) }));
     const n = s => rows.filter(x=>x.st.s===s).length;
     const order = { over:0, break:1, busy:2, available:3, notin:4, done:5, off:6 };
@@ -379,25 +404,14 @@ views.live = {
           ${r.check_in && !r.check_out ? breaksLeftHtml(left) : ""}
         </div>`; }).join("")}</div>`;
     tickBreaks();
-    const prev = this.prev || {}; this.prev = {};
-    document.querySelectorAll("#lvBody .pcard").forEach(c => { this.prev[c.dataset.eid] = c.dataset.st; if(prev[c.dataset.eid] && prev[c.dataset.eid] !== c.dataset.st) replay(c, "changed"); });
-  }
-};
-function breakPanel(rec, mode){
-  if(!rec || rec.check_out || rec.mode !== mode) return "";
+    const prev = boardPrev; boardPrev = {};
+    document.querySelectorAll("#lvBody .pcard").forEach(c => { boardPrev[c.dataset.eid] = c.dataset.st; if(prev[c.dataset.eid] && prev[c.dataset.eid] !== c.dataset.st) replay(c, "changed"); });
+}
+
+/* Break and status picker (only shown while available). Running breaks are handled in the Today hero. */
+function breakCards(){
   if(!liveLoaded) return `<section class="panel"><h2>Status</h2><p class="muted">Loading</p></section>`;
   const mineRow = live.find(r => r.employee_id === me.id);
-  const st = mineRow ? liveState(mineRow) : { s:"available" };
-  if(st.s==="busy"){
-    return `<section class="panel brk"><div class="punch"><div><div class="small muted">${breakName(mineRow)} since ${tstr(mineRow.break_started)}</div>
-      <div class="brk-time" data-bup="${Date.parse(mineRow.break_started)}"></div></div>
-      <button class="btn primary big" id="bEnd">Back to available</button></div></section>`;
-  }
-  if(st.s==="break" || st.s==="over"){
-    return `<section class="panel brk" data-bwrap><div class="punch"><div><div class="small muted">On a ${breakName(mineRow)} since ${tstr(mineRow.break_started)}</div>
-      <div class="brk-time" data-bstart="${Date.parse(mineRow.break_started)}" data-ballow="${mineRow.break_allowed}"></div></div>
-      <button class="btn primary big" id="bEnd">Back to available</button></div></section>`;
-  }
   const left = breaksLeft(mineRow);
   const others = live.filter(r => r.employee_id !== me.id && liveState(r).s === "available").length;
   const blocked = others < S.min_available;
@@ -429,14 +443,7 @@ async function breakAction(fn, args, btn){
   const k = args.p_kind;
   toast(fn==="start_break" ? (k==="meeting" ? "Status: Meeting" : k==="task" ? "Status: Task / Out of Q" : "Break started") : "You are available"); await refreshLive();
 }
-/* ---------- check-in ---------- */
-const photos = {};
-function avatar(name, id){ if(id && photos[id]) return `<img class="av" src="${esc(photos[id])}" alt="">`; const n = String(name||"?"); let h = 0; for(const c of n) h = (h*31 + c.charCodeAt(0)) % 360;
-  const ini = n.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join("").toUpperCase();
-  return `<span class="av" style="--h:${h}">${esc(ini)}</span>`; }
-const avatarName = (n, id) => `<span class="avn">${avatar(n, id)}<span>${esc(n)}</span></span>`;
-const modeChip = m => `<span class="mode-chip ${m}">${m==="remote" ? '<svg viewBox="0 0 24 24"><path d="M4 11l8-6 8 6v9H4z"/><path d="M10 20v-5h4v5"/></svg>Remote' : '<svg viewBox="0 0 24 24"><path d="M4 20V8l8-4 8 4v12"/><path d="M9 20v-5h6v5"/></svg>Office'}</span>`;
-function timelinePanel({ sf, start, end, rec, nowM, ot, opens }){
+function timelinePanel({ sf, start, end, rec, nowM, ot, opens, open }){
   const office = (rec ? rec.mode : sf.mode) === "office";
   const extra = ot && ot.status!=="rejected" ? ot.minutes : 0;
   const ev = [];
@@ -450,13 +457,15 @@ function timelinePanel({ sf, start, end, rec, nowM, ot, opens }){
   if(rec && rec.check_out) ev.push({ t:mins(ts(rec.check_out)), title: rec.auto_out ? "Checked out automatically" : "You checked out", you:true });
   if(!(rec && rec.check_out) && nowM >= opens - 60 && nowM <= end + extra + 60) ev.push({ t:nowM, title:"Now", now:true });
   ev.sort((a,b) => a.t - b.t || (a.now ? 1 : 0) - (b.now ? 1 : 0));
-  return `<section class="panel"><div class="shift-head"><h2 style="margin:0">Today's timeline</h2><span class="small muted">${sf.planned ? "From this month's schedule" : "Default shift"}, UAE time</span></div>
-    <ol class="tl">${ev.map(e => `<li class="${e.now?"now":""} ${e.you?"you":""} ${e.key?"key":""} ${e.warn?"warn":""} ${!e.now && e.t <= nowM ? "past" : ""}"><span class="tl-t">${hm(Math.max(0,e.t))}</span><span class="tl-d"></span><span class="tl-b"><b>${e.title}</b>${e.sub?`<span>${esc(e.sub)}</span>`:""}</span></li>`).join("")}</ol></section>`;
+  return `<details class="panel fold" id="tlFold" ${open ? "open" : ""}><summary><h2>Today's timeline</h2><span class="small muted">${sf.planned ? "From this month's schedule" : "Default shift"}, UAE time</span></summary>
+    <ol class="tl">${ev.map(e => `<li class="${e.now?"now":""} ${e.you?"you":""} ${e.key?"key":""} ${e.warn?"warn":""} ${!e.now && e.t <= nowM ? "past" : ""}"><span class="tl-t">${hm(Math.max(0,e.t))}</span><span class="tl-d"></span><span class="tl-b"><b>${e.title}</b>${e.sub?`<span>${esc(e.sub)}</span>`:""}</span></li>`).join("")}</ol></details>`;
 }
-views.checkin = {
-  mount(el){ this.el = el; this.update(); },
+/* Employee home: check in, status and the live board on one page. */
+views.today = {
+  picker:false, tlOpen:false,
+  mount(el){ this.el = el; this.picker = false; refreshLive(); this.update(); },
   update(){
-    if(tab!=="checkin" || !me) return;
+    if(tab!=="today" || !me) return;
     const t = now(), k = dkey(t), nowM = mins(t);
     if(mine.ym !== ymOf(k)){ loadMine(ymOf(k)).then(()=>this.update()); }
     const sf = shiftFor(me, k, mine.sched), sh = sf.sh, start = pHM(sh.start), end = pHM(sh.end);
@@ -465,7 +474,9 @@ views.checkin = {
     const st = dayFrom(sum, k, dayStatus(me, k, rec, mine.sched));
     const opens = start - S.checkin_open_min;
     const ot = (mine.ot||[]).filter(o => o.day === k).sort((a,b)=>b.id-a.id)[0];
-    let state, buttons = "";
+    const mineRow = live.find(r => r.employee_id === me.id), ls = rec && !rec.check_out && mineRow ? liveState(mineRow) : null;
+    const away = !!ls && ["break","over","busy"].includes(ls.s);
+    let state, buttons = "", over = false;
     if(st.s==="excused" && !rec){ state = `<b>Excused today.</b> ${st.reason?`<span class="muted">${esc(st.reason)}</span>`:""}`; }
     else if(sf.off && !rec){ state = `<b>Day off.</b> <span class="muted">No shift scheduled today.</span>`; }
     else if(!rec){
@@ -474,16 +485,26 @@ views.checkin = {
       else { state = `<b>Not checked in.</b> <span class="muted">Shift starts ${esc(sh.start)}.${sf.mode==="office" ? ` You need to be within ${S.radius_m} m of the office.` : ""}</span>`;
         buttons = `<button class="btn primary big" id="bIn">${sf.mode==="office" ? "Check in at the office" : "Check in remotely"}</button>`; }
     } else if(!rec.check_out){
-      state = `<b>Checked in at ${tstr(rec.check_in)}.</b> ${chip(st)}`;
-      buttons = `<button class="btn big" id="bOut">Check out</button>`;
+      const out = `<button class="btn" id="bOut">Check out</button>`;
+      if(away){
+        const busy = ls.s==="busy"; over = ls.s==="over";
+        state = `<b>${esc(breakName(mineRow))}</b> <span class="muted">since ${tstr(mineRow.break_started)}</span><div class="brk-time" ${busy ? `data-bup="${Date.parse(mineRow.break_started)}"` : `data-bstart="${Date.parse(mineRow.break_started)}" data-ballow="${mineRow.break_allowed}"`}></div>`;
+        buttons = `<button class="btn primary big" id="bEnd">Back to available</button>${out}`;
+      } else {
+        state = `<b>Checked in at ${tstr(rec.check_in)}.</b> ${chip(st)}`;
+        buttons = `<button class="btn primary big" id="bPick" aria-expanded="${this.picker}">${this.picker ? "Hide breaks" : "Break or status"}</button>${out}`;
+      }
     } else state = `<b>Done for today.</b> <span class="muted">${tstr(rec.check_in)} to ${tstr(rec.check_out)}${rec.auto_out?" (automatic check-out)":""}</span> ${chip(st)}`;
     const otPanel = rec && !rec.check_out ? `<section class="panel"><div class="shift-head"><h2 style="margin:0">Extend shift</h2>${ot ? `<span class="chip c-${ot.status==="approved"?"early":ot.status==="rejected"?"late":"pending"}">${ot.minutes} min, ${ot.status}</span>` : ""}</div>
       ${ot && ot.status==="pending" ? `<p class="small muted" style="margin:0">Waiting for a manager. Your automatic check-out waits until ${hm(end + ot.minutes + 1)}.</p>`
       : ot && ot.status==="approved" ? `<p class="small muted" style="margin:0">Approved by ${esc(ot.decided_by||"a manager")}. Automatic check-out moves to ${hm(end + ot.minutes + 1)}.</p>`
       : `<div class="ot-row"><select class="inl" id="otMin">${[30,60,90,120].map(m=>`<option value="${m}">${fmtMin(m)}</option>`).join("")}</select><input class="inl" id="otWhy" maxlength="120" placeholder="Reason, for example a long customer case"><button class="btn" id="otGo">Request</button></div>
          <p class="hint">Working past ${esc(sh.end)}? Ask before your shift ends. Without approval you are checked out automatically at ${hm(end+1)}.</p>`}</section>` : "";
+    // keep what the person is typing across the 15 second refresh
+    const keep = { why: $("#otWhy")?.value || "", min: $("#otMin")?.value || "" };
+    const adh = adherenceFor(me, ymOf(k), mine.att, mine.sched, mine.brk);
     this.el.innerHTML = `
-      <section class="hero">
+      <section class="hero ${over ? "is-over" : ""}" ${away && ls.s!=="busy" ? "data-bwrap" : ""}>
         <div class="hero-l">
           <div class="date">${esc(longDate(k))}</div>
           <div class="time" id="clk">--:--:--</div>
@@ -492,24 +513,23 @@ views.checkin = {
         </div>
         <div class="hero-r"><div class="state">${state}</div><div class="hero-btn">${buttons}</div></div>
       </section>
-      ${sf.off && !rec ? "" : timelinePanel({ sf, start, end, rec, nowM, ot, opens })}
+      ${this.picker && rec && !rec.check_out && !away ? breakCards() : ""}
       ${otPanel}
-      <section class="panel">
-        <h2>${esc(monthLabel(ymOf(k)))} so far</h2>
-        <div class="tally">
-          <div class="t-g"><div class="n">${sum.early}</div><div class="l">Early credits</div></div>
-          <div class="t-r"><div class="n">${sum.red}</div><div class="l">Red${sum.cleared?`, ${sum.cleared} cleared`:""}</div></div>
-          <div class="t-b"><div class="n">${sum.black}</div><div class="l">Black</div></div>
-          <div class="t-a"><div class="n">${sum.penalties}</div><div class="l muted">Total penalties</div></div>
-          ${(a => `<div class="t-adh ${adhClass(a?.pct)}" title="Time on schedule this month: (scheduled minutes minus late, early leave, absence and over-break minutes) divided by scheduled minutes"><div class="n">${adhText(a)}</div><div class="l">Adherence, target ${S.adherence_target}%</div></div>`)(adherenceFor(me, ymOf(k), mine.att, mine.sched, mine.brk))}
-        </div>
-        <p class="hint">${sum.lateLeft} allowed late day(s) left this month. ${sum.clearsLeft} early-credit clear(s) left this month. Everything resets on the 1st.</p>
-      </section>
-      ${streakPanel(streakFor(me, mine.att, mine.sched))}`;
-    tick();
-    const bi = $("#bIn"), bo = $("#bOut"), og = $("#otGo");
+      <section class="panel today-month"><div><b>${esc(monthLabel(ymOf(k)))}:</b> ${sum.red} red, ${sum.black} black, adherence ${adhText(adh)}, ${streakFor(me, mine.att, mine.sched)}-day on-time streak</div><button class="btn small" id="tmMore">My month</button></section>
+      <h2 class="sec-h">Team right now</h2>
+      <div id="lvBody"><p class="muted">Loading</p></div>
+      ${sf.off && !rec ? "" : timelinePanel({ sf, start, end, rec, nowM, ot, opens, open:this.tlOpen })}`;
+    if($("#otWhy")){ $("#otWhy").value = keep.why; if(keep.min) $("#otMin").value = keep.min; }
+    tick(); paintBoard();
+    const fold = $("#tlFold"); if(fold) fold.ontoggle = () => { this.tlOpen = fold.open; };
+    const bi = $("#bIn"), bo = $("#bOut"), og = $("#otGo"), bp = $("#bPick"), be = $("#bEnd");
     if(bi) bi.onclick = () => punch("in", sf.mode, bi);
     if(bo) bo.onclick = () => punch("out", rec.mode, bo);
+    if(bp) bp.onclick = () => { this.picker = !this.picker; this.update(); };
+    if(be) be.onclick = () => breakAction("end_break", {}, be);
+    $("#tmMore").onclick = () => goTo("month", "points");
+    const on = (id, kind) => { const b = $(id); if(b) b.onclick = () => { this.picker = false; breakAction("start_break", { p_kind:kind }, b); }; };
+    on("#bShort","short"); on("#bLong","long"); on("#bWc","wc"); on("#bMeet","meeting"); on("#bTask","task");
     if(og) og.onclick = async () => {
       og.disabled = true;
       const { error } = await sb.rpc("request_overtime", { p_minutes:+$("#otMin").value, p_reason:$("#otWhy").value.trim() });
@@ -570,41 +590,18 @@ async function punch(kind, mode, btn, onError){
   }
 }
 
-/* ---------- breaks tab ---------- */
-views.breaks = {
-  mount(el){ this.el = el; this.update(); },
-  update(){
-    if(tab!=="breaks" || !me) return;
-    const k = dkey(now()), rec = mine.att[`${me.id}|${k}`];
-    let body;
-    if(!rec) body = `<section class="panel"><h2>Status</h2><p class="empty">Check in first. Your status can change after you check in.</p></section>`;
-    else if(rec.check_out) body = `<section class="panel"><h2>Status</h2><p class="empty">You checked out for today.</p></section>`;
-    else body = breakPanel(rec, rec.mode);
-    const others = live.filter(r => r.employee_id !== me.id);
-    const away = others.filter(r => isAway(liveState(r).s));
-    this.el.innerHTML = `${body}
-      <section class="panel"><h2>Team right now</h2>
-        <p class="small" style="margin:0 0 8px"><b>${others.filter(r=>liveState(r).s==="available").length}</b> available, <b>${away.length}</b> away.</p>
-        ${away.length ? away.map(r => { const busy = liveState(r).s==="busy"; return `<div class="item" ${busy?"":"data-bwrap"}><span>${esc(r.name)}</span><span class="small">${breakName(r)}${busy?" for ":", "}${timerSpan(r)}</span></div>`; }).join("") : `<p class="empty" style="padding:0">Everyone else is available.</p>`}
-      </section>`;
-    tickBreaks();
-    const on = (id, kind) => { const b = $(id); if(b) b.onclick = () => breakAction("start_break", { p_kind:kind }, b); };
-    on("#bShort","short"); on("#bLong","long"); on("#bWc","wc"); on("#bMeet","meeting"); on("#bTask","task");
-    const be = $("#bEnd"); if(be) be.onclick = () => breakAction("end_break", {}, be);
-  }
-};
-
 /* ---------- my points ---------- */
 views.mine = {
   ym:null,
   mount(el){
     this.el = el; this.ym = this.ym || ymOf(dkey(now()));
-    el.innerHTML = `<div class="panel"><label class="f" style="max-width:220px">Month<select id="mSel">${lastMonths(12).map(m=>`<option value="${m}" ${m===this.ym?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label></div><div id="mBody"><p class="muted">Loading</p></div>`;
+    el.innerHTML = `<div class="panel" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;justify-content:space-between"><label class="f" style="min-width:200px">Month<select id="mSel">${lastMonths(12).map(m=>`<option value="${m}" ${m===this.ym?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label><button class="btn" id="mCsv">Export CSV</button></div><div id="mBody"><p class="muted">Loading</p></div>`;
     $("#mSel").onchange = async e => { this.ym = e.target.value; await loadMine(this.ym); this.update(); };
+    $("#mCsv").onclick = () => exportTableCsv($("#mBody table"), `My-points-${this.ym}`);
     loadMine(this.ym).then(()=>this.update());
   },
   update(){
-    if(tab!=="mine" || mine.ym!==this.ym) return;
+    if(!$("#mBody") || mine.ym!==this.ym) return;
     const s = summarize(me, this.ym, mine.att, mine.sched, mine.adj);
     const rows = s.rows.slice().reverse();
     $("#mBody").innerHTML = `
@@ -623,19 +620,106 @@ views.mine = {
   }
 };
 
+views.myschedule = {
+  ym:null,
+  async mount(el){
+    this.el = el; this.ym = this.ym || ymOf(dkey(now()));
+    el.innerHTML = `<div id="msBody"><p class="muted">Loading</p></div>`;
+    await this.load(); this.render();
+  },
+  async load(){
+    const a = `${this.ym}-01`, b = monthEnd(this.ym);
+    const [sc, att, ex] = await Promise.all([
+      sb.from("schedule").select("*").eq("employee_id",me.id).gte("day",a).lte("day",b),
+      sb.from("attendance").select("*").eq("employee_id",me.id).gte("day",a).lte("day",b),
+      sb.from("excused").select("*").eq("employee_id",me.id).gte("day",a).lte("day",b)
+    ]);
+    this.sched = toMap(sc.data||[], r=>r.shift_id); this.att = toMap(att.data||[], r=>r);
+    for(const r of sc.data||[]) if(r.work_mode) this.sched[`M|${r.employee_id}|${r.day}`] = r.work_mode;
+    for(const r of ex.data||[]){ this.sched[`X|${r.employee_id}|${r.day}`] = r.reason || ""; this.sched[`XT|${r.employee_id}|${r.day}`] = r.leave_type || "excused"; }
+  },
+  render(){
+    if(!$("#msBody")) return;
+    const today = dkey(now()), days = monthKeys(this.ym);
+    const ids = Object.keys(shifts);
+    const tone = id => `s${(ids.indexOf(id) % 3) + 1}`;
+    const info = k => { const sf = shiftFor(me, k, this.sched); return sf.off ? { off:true } : { off:false, sh:sf.sh, id: ids.find(i => shifts[i]===sf.sh) }; };
+    const lead = (wdOf(days[0]) + 6) % 7;
+    const work = days.filter(k => !info(k).off), left = work.filter(k => k >= today);
+    const next = days.find(k => k > today && !info(k).off);
+    const todayInfo = days.includes(today) ? info(today) : null;
+    const counts = {}; for(const k of work){ const id = info(k).id; counts[id] = (counts[id]||0)+1; }
+    const label = sh => `${sh.start}–${sh.end}`;
+    const cur = ymOf(today), nextYm = (()=>{ const [y,m] = cur.split("-").map(Number); return new Date(Date.UTC(y,m,15)).toISOString().slice(0,7); })();
+    $("#msBody").innerHTML = `
+      <div class="ms-top">
+        <div class="ms-hero">
+          <div class="small muted">${todayInfo ? "Today" : "This month"}</div>
+          <div class="ms-big">${todayInfo ? (todayInfo.off ? "Day off" : label(todayInfo.sh)) : esc(monthLabel(this.ym))}</div>
+          <div class="small muted">${next ? `Next shift ${esc(prettyDate(next))}, ${label(info(next).sh)}` : "No more shifts this month"}</div>
+        </div>
+        <div class="ms-stat"><div class="n">${work.length}</div><div class="l muted">Working days</div></div>
+        <div class="ms-stat"><div class="n">${left.length}</div><div class="l muted">Still to go</div></div>
+        <div class="ms-stat"><div class="n">${days.length - work.length}</div><div class="l muted">Days off</div></div>
+      </div>
+      <section class="panel">
+        <div class="ms-nav">
+          <button class="btn small" id="msPrev" ${this.ym===cur?"disabled":""} aria-label="Previous month">‹</button>
+          <h2 style="margin:0">${esc(monthLabel(this.ym))}</h2>
+          <button class="btn small" id="msNext" ${this.ym===nextYm?"disabled":""} aria-label="Next month">›</button>
+        </div>
+        <div class="cal">
+          ${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=>`<div class="cal-h">${d}</div>`).join("")}
+          ${Array.from({length:lead},()=>`<div class="cal-d empty"></div>`).join("")}
+          ${days.map(k => { const x = info(k), rec = this.att[`${me.id}|${k}`];
+            const cls = ["cal-d", k===today?"today":"", k<today?"past":"", x.off?"off":""].join(" ");
+            const dot = rec ? `<span class="cal-dot ${rec.mode==="remote"?"rem":"off"}" title="${rec.mode==="remote"?"Worked remote":"Worked at the office"}"></span>` : "";
+            const exc = this.sched[`X|${me.id}|${k}`];
+            return `<div class="${cls}"><div class="cal-n">${+k.slice(8)}${dot}</div>${exc !== undefined ? `<div class="cal-exc lv-${this.sched[`XT|${me.id}|${k}`]||"excused"}" title="${esc(exc)}">${(LEAVE[this.sched[`XT|${me.id}|${k}`]||"excused"])[0]}</div>` : x.off ? `<div class="cal-off">Off</div>` : `<div class="cal-pill ${tone(x.id)}"><span>${x.sh.start}</span><span class="to">${x.sh.end}</span></div>${shiftFor(me,k,this.sched).mode==="remote" ? '<div class="cal-mode">Remote</div>' : ""}`}</div>`; }).join("")}
+        </div>
+        <div class="cal-legend">
+          ${ids.filter(id=>counts[id]).map(id=>`<span><i class="cal-sw ${tone(id)}"></i>${label(shifts[id])}, ${counts[id]} day(s)</span>`).join("")}
+          <span><i class="cal-sw so"></i>Day off</span>
+        </div>
+      </section>`;
+    $("#msPrev").onclick = async () => { this.ym = cur; await this.load(); this.render(); };
+    $("#msNext").onclick = async () => { this.ym = nextYm; await this.load(); this.render(); };
+  }
+};
+
+
+views.month = sectionsView(() => [["points","Points",views.mine],["schedule","Schedule",views.myschedule]]);
 /* ---------- admin: team today ---------- */
-views.team = {
+/* ---------- manager home: needs attention, live board, today's check-ins ---------- */
+function attentionItems(k){
+  const items = [];
+  const issues = checkSchedule(ymOf(k), team.sched).issues.length;
+  if(issues) items.push({ text:`${issues} schedule rule problem${issues>1?"s":""} this month`, go:"Open schedule", to:["schedule"] });
+  const noMail = emps.filter(e => e.active && (e.tracked || e.scheduled) && !e.email).length;
+  if(noMail) items.push({ text:`${noMail} ${noMail>1?"people have":"person has"} no email and cannot sign in`, go:"Open people", to:["people","staff"] });
+  const review = tracked().filter(e => summarize(e, ymOf(k), team.att, team.sched, team.adj).penalties >= S.review_threshold).length;
+  if(review) items.push({ text:`${review} employee${review>1?"s":""} reached ${S.review_threshold}+ penalties and need review`, go:"Open reports", to:["reports","points"] });
+  return items;
+}
+views.ops = {
   mount(el){
     this.el = el;
-    el.innerHTML = `<div class="actions" style="margin:0 0 12px"><button class="btn" id="tRef">Refresh</button></div><div id="tBody"><p class="muted">Loading</p></div>`;
-    $("#tRef").onclick = () => loadTeam(ymOf(dkey(now())));
-    loadTeam(ymOf(dkey(now())));
+    el.innerHTML = `<div id="opsAttn"></div>
+      <div class="sec-row"><h2 class="sec-h">Live board</h2><button class="btn small" id="tRef">Refresh</button></div>
+      <div id="lvBody"><p class="muted">Loading</p></div>
+      <div class="sec-row"><h2 class="sec-h">Check-ins today</h2><button class="btn small" id="tCsv">Export CSV</button></div>
+      <div id="tBody"><p class="muted">Loading</p></div>`;
+    $("#tRef").onclick = () => { loadTeam(ymOf(dkey(now()))); refreshLive(); };
+    $("#tCsv").onclick = () => exportTableCsv($("#tBody table"), `Attendance-${dkey(now())}`);
+    refreshLive(); loadTeam(ymOf(dkey(now())));
   },
   update(){
-    if(tab!=="team") return;
+    if(tab!=="ops") return;
+    paintBoard();
     const k = dkey(now()), list = tracked();
-    if(team.loading || team.ym !== ymOf(k)){ $("#tBody").innerHTML = `<p class="muted">Loading</p>`; return; }
-    if(!list.length){ $("#tBody").innerHTML = `<div class="panel"><p class="empty">No tracked employees. Add them in Employees.</p></div>`; return; }
+    if(team.loading || team.ym !== ymOf(k)){ if(!team.ym) $("#tBody").innerHTML = `<p class="muted">Loading</p>`; return; }
+    this.attention(k);
+    if(!list.length){ $("#tBody").innerHTML = `<div class="panel"><p class="empty">No tracked employees. Add them in People.</p></div>`; return; }
     let off=0, rem=0, late=0, abs=0, early=0;
     const rows = list.map(e => {
       const rec = team.att[`${e.id}|${k}`], sh = shiftFor(e, k, team.sched);
@@ -648,10 +732,7 @@ views.team = {
       if(!e.email) flags.push("no email set");
       return `<tr><td>${avatarName(e.name, e.id)}</td><td class="small">${sh.off ? "Off" : `${esc(sh.sh.start)} to ${esc(sh.sh.end)}`}</td><td>${sh.off && !rec ? "" : modeChip(rec ? rec.mode : sh.mode)}</td><td>${tstr(rec?.check_in)}</td><td>${tstr(rec?.check_out)}${rec?.auto_out?' <span class="chip c-off">Auto</span>':""}</td><td>${chip(st)}${le?`<div class="flag-red">Left early, ${fmtMin(le)}</div>`:""}${flags.length?`<div class="flag">${esc(flags.join(", "))}</div>`:""}</td></tr>`;
     }).join("");
-    const pend = (team.ot||[]).filter(o => o.status==="pending");
-    const byId = Object.fromEntries(emps.map(e=>[e.id,e.name]));
     $("#tBody").innerHTML = `
-      ${pend.length ? `<div class="panel ot-req"><h2>Overtime requests</h2>${pend.map(o=>`<div class="item"><div>${avatarName(byId[o.employee_id]||"", o.employee_id)}<div class="small muted" style="margin-left:40px">${esc(prettyDate(o.day))}: ${fmtMin(o.minutes)} after shift end${o.reason?`. ${esc(o.reason)}`:""}</div></div><div style="display:flex;gap:8px"><button class="btn ok" data-ot="${o.id}" data-ap="1">Approve</button><button class="btn no" data-ot="${o.id}" data-ap="0">Reject</button></div></div>`).join("")}</div>` : ""}
       <div class="panel"><div class="tally">
         <div class="t-a"><div class="n">${off}</div><div class="l muted">At the office</div></div>
         <div class="t-a"><div class="n">${rem}</div><div class="l muted">Remote</div></div>
@@ -660,7 +741,15 @@ views.team = {
         <div class="t-a"><div class="n">${early}</div><div class="l muted">Left early</div></div>
       </div></div>
       <div class="panel scroll"><table class="rows"><thead><tr><th>Employee</th><th>Shift</th><th>Where</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    $("#tBody").querySelectorAll("[data-ot]").forEach(b => b.onclick = async () => {
+  },
+  attention(k){
+    const pend = (team.ot||[]).filter(o => o.status==="pending"), items = attentionItems(k);
+    const byId = Object.fromEntries(emps.map(e=>[e.id,e.name]));
+    $("#opsAttn").innerHTML = pend.length || items.length ? `<div class="panel ot-req"><h2>Needs attention</h2>
+      ${pend.map(o=>`<div class="item"><div>${avatarName(byId[o.employee_id]||"", o.employee_id)}<div class="small muted" style="margin-left:40px">Overtime: ${esc(prettyDate(o.day))}, ${fmtMin(o.minutes)} after shift end${o.reason?`. ${esc(o.reason)}`:""}</div></div><div style="display:flex;gap:8px"><button class="btn ok" data-ot="${o.id}" data-ap="1">Approve</button><button class="btn no" data-ot="${o.id}" data-ap="0">Reject</button></div></div>`).join("")}
+      ${items.map((x,i)=>`<div class="item"><span>${esc(x.text)}</span><button class="btn small" data-go="${i}">${x.go}</button></div>`).join("")}</div>` : "";
+    $("#opsAttn").querySelectorAll("[data-go]").forEach(b => b.onclick = () => goTo(...items[+b.dataset.go].to));
+    $("#opsAttn").querySelectorAll("[data-ot]").forEach(b => b.onclick = async () => {
       b.disabled = true;
       const { error } = await sb.rpc("decide_overtime", { p_id:+b.dataset.ot, p_approve: b.dataset.ap==="1" });
       if(error){ toast(errMsg(error)); b.disabled = false; return; }
@@ -668,7 +757,6 @@ views.team = {
     });
   }
 };
-
 /* ---------- admin: points ---------- */
 views.points = {
   ym:null,
@@ -677,7 +765,7 @@ views.points = {
     el.innerHTML = `
       <div class="panel" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;justify-content:space-between">
         <label class="f" style="min-width:200px">Month<select id="rSel">${lastMonths(12).map(m=>`<option value="${m}" ${m===this.ym?"selected":""}>${esc(monthLabel(m))}</option>`).join("")}</select></label>
-        <div style="display:flex;gap:8px"><button class="btn" id="rRef">Refresh</button><button class="btn primary" id="rXlsx">Download full report</button></div>
+        <div style="display:flex;gap:8px"><button class="btn" id="rRef">Refresh</button><button class="btn" id="rCsv">Export CSV</button><button class="btn primary" id="rXlsx">Download full report</button></div>
       </div>
       <div id="rBody"><p class="muted">Loading</p></div>
       <div class="panel"><h2>Adjust points</h2>
@@ -694,6 +782,7 @@ views.points = {
     $("#rSel").onchange = e => { this.ym = e.target.value; loadTeam(this.ym); };
     $("#rRef").onclick = () => loadTeam(this.ym);
     $("#rXlsx").onclick = () => reportDialog();
+    $("#rCsv").onclick = () => exportTableCsv($("#rBody table"), `Points-${this.ym}`);
     $("#jSave").onclick = async e => {
       const reason = $("#jR").value.trim();
       if(!reason){ toast("Add a reason for the adjustment."); return; }
@@ -706,7 +795,7 @@ views.points = {
     loadTeam(this.ym);
   },
   update(){
-    if(tab!=="points") return;
+    if(!$("#rBody")) return;
     if(team.loading || team.ym !== this.ym){ $("#rBody").innerHTML = `<p class="muted">Loading</p>`; return; }
     const otMin = id => (team.ot||[]).filter(o => o.employee_id===id && o.status==="approved" && o.day.startsWith(this.ym)).reduce((a,o)=>a+o.minutes,0);
     this.rows = tracked().map(e => { const s = summarize(e, this.ym, team.att, team.sched, team.adj); s.ot = otMin(e.id); s.review = s.penalties >= S.review_threshold; s.streak = streakFor(e, team.att, team.sched); s.adh = adherenceFor(e, this.ym, team.att, team.sched, team.brk); return { e, s }; });
@@ -731,9 +820,10 @@ views.audit = {
     this.el = el;
     el.innerHTML = `<div class="panel" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;justify-content:space-between">
       <label class="f" style="flex:1;min-width:220px">Search<input id="auQ" placeholder="Manager, employee, action or details"></label>
-      <button class="btn" id="auRef">Refresh</button></div><div id="auBody"><p class="muted">Loading</p></div>`;
+      <div style="display:flex;gap:8px"><button class="btn" id="auRef">Refresh</button><button class="btn" id="auCsv">Export CSV</button></div></div><div id="auBody"><p class="muted">Loading</p></div>`;
     $("#auQ").oninput = () => this.update();
     $("#auRef").onclick = () => this.load();
+    $("#auCsv").onclick = () => exportTableCsv($("#auBody table"), "Activity-log");
     this.load();
   },
   async load(){
@@ -742,7 +832,7 @@ views.audit = {
     this.rows = data || []; this.update();
   },
   update(){
-    if(tab!=="audit") return;
+    if(!$("#auBody")) return;
     const q = ($("#auQ").value||"").toLowerCase();
     const rows = this.rows.filter(r => !q || [r.actor_name,r.actor_email,r.action,r.target,r.details].join(" ").toLowerCase().includes(q));
     $("#auBody").innerHTML = rows.length ? `<div class="panel scroll"><table class="rows audit"><thead><tr><th>Date</th><th>Time</th><th>By</th><th>Action</th><th>Employee</th><th>Details</th></tr></thead><tbody>
@@ -751,6 +841,8 @@ views.audit = {
   }
 };
 
+
+views.reports = sectionsView(() => [["points","Points",views.points],["log","Activity log",views.audit]]);
 /* ---------- management report (Excel) ---------- */
 let excelLib = null;
 function loadExcel(){
@@ -939,6 +1031,17 @@ async function exportReport(from, to, periodLabel, btn){
 }
 const rangeKeys = (a, b) => { const out = []; for(let t = Date.parse(a+"T12:00:00Z"), e = Date.parse(b+"T12:00:00Z"); t <= e; t += 864e5) out.push(new Date(t).toISOString().slice(0,10)); return out; };
 
+
+/* Quick CSV of any table on screen. Cells that start with = + - @ get a leading quote so spreadsheets never run them as formulas. */
+function exportTableCsv(table, name){
+  if(!table){ toast("Nothing to export yet."); return; }
+  const cell = c => { const n = c.cloneNode(true); n.querySelectorAll(".av").forEach(x => x.remove()); n.querySelectorAll("div, br").forEach(x => x.before(" ")); let v = n.textContent.replace(/\s+/g, " ").trim(); if(/^[=+\-@]/.test(v)) v = "'" + v; return `"${v.replace(/"/g, '""')}"`; };
+  const csv = [...table.rows].map(r => [...r.cells].map(cell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type:"text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href:url, download:`${name}.csv` });
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast("CSV downloaded");
+}
 /* ---------- schedule rules ---------- */
 const RULES = () => ({ min_senior_office:1, night_needs_morning_office:true, no_consecutive_remote:true, remote_pairs:[], ...(S.rules||{}) });
 const roleLabel = e => e?.title || (e?.is_admin ? "Full access" : "Member access");
@@ -1038,16 +1141,32 @@ views.schedule = {
     el.innerHTML = `
       <div class="panel"><label class="f" style="max-width:220px">Month<select id="scSel">${monthOptions(this.ym)}</select></label></div>
       <div class="panel"><div class="shift-head"><h2 style="margin:0">Month overview</h2><span id="scScore"></span></div><div id="scCheck"></div><div id="scBody"><p class="muted">Loading</p></div></div>
-      <div class="panel"><div class="shift-head"><h2 style="margin:0">Weekly plan</h2><span class="small muted">Set the usual week once, then fix single days in Month overview.</span></div><div id="scEdit"><p class="muted">Loading</p></div></div>`;
+      <div class="panel"><div class="shift-head"><h2 style="margin:0">Weekly plan</h2><span class="small muted">Set the usual week once, then fix single days in Month overview.</span><button class="btn small" id="scCopy">Copy last month</button></div><div id="scEdit"><p class="muted">Loading</p></div></div>`;
     $("#scSel").onchange = e => { this.ym = e.target.value; this.plan = null; loadTeam(this.ym); };
+    $("#scCopy").onclick = e => this.copyLastMonth(e.target);
     this.plan = null; loadTeam(this.ym);
   },
+  /* Loads last month's usual shift and remote days into the weekly plan. Nothing is saved until Apply plan. */
+  async copyLastMonth(btn){
+    const [y, m] = this.ym.split("-").map(Number), prev = new Date(Date.UTC(y, m-2, 15)).toISOString().slice(0,7), a = `${prev}-01`, b = monthEnd(prev);
+    btn.disabled = true;
+    const [sc, ex] = await Promise.all([sb.from("schedule").select("*").gte("day",a).lte("day",b), sb.from("excused").select("*").gte("day",a).lte("day",b)]);
+    btn.disabled = false;
+    if(sc.error || ex.error){ toast(errMsg(sc.error || ex.error)); return; }
+    if(!(sc.data||[]).length){ toast(`No schedule was saved for ${monthLabel(prev)}.`); return; }
+    const sm = toMap(sc.data, r => r.shift_id);
+    for(const r of sc.data) if(r.work_mode) sm[`M|${r.employee_id}|${r.day}`] = r.work_mode;
+    for(const r of ex.data||[]) sm[`X|${r.employee_id}|${r.day}`] = r.reason || "";
+    this.plan = this.buildPlan(prev, sm); this.renderPlan();
+    $("#scEdit").scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block:"start" });
+    toast(`${monthLabel(prev)} loaded into the plan. Review it, then press Apply plan.`);
+  },
   dows(){ return [1,2,3,4,5,6,0].filter(d => S.workdays.includes(d)); },
-  buildPlan(){
-    const days = monthKeys(this.ym), plan = {};
+  buildPlan(ym = this.ym, sm = team.sched){
+    const days = monthKeys(ym), plan = {};
     for(const e of schedPeople()){
       const cnt = {}, rem = {}, tot = {};
-      for(const k of days){ const sf = shiftFor(e, k, team.sched); if(sf.off || team.sched[`X|${e.id}|${k}`] !== undefined) continue;
+      for(const k of days){ const sf = shiftFor(e, k, sm); if(sf.off || sm[`X|${e.id}|${k}`] !== undefined) continue;
         const id = Object.keys(shifts).find(i=>shifts[i]===sf.sh); cnt[id] = (cnt[id]||0) + 1; const w = wdOf(k); tot[w] = (tot[w]||0) + 1; if(sf.mode==="remote") rem[w] = (rem[w]||0) + 1; }
       const shift = Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0] || e.shift_id || S.default_shift;
       plan[e.id] = { shift, remote: new Set(Object.keys(tot).map(Number).filter(w => (rem[w]||0) * 2 > tot[w])) };
@@ -1130,7 +1249,7 @@ views.schedule = {
     const body = list.map(e=>{ const cells = days.map(k=>cell(e,k)).join(""); return `<tr><th class="mo-name">${avatarName(e.name, e.id)}<span class="mo-cnt">${esc(e.title||"")}${e.title?" · ":""}${counts[e.id]||0} days</span></th>${cells}</tr>`; }).join("");
     $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="mo-grid"><thead><tr><th class="mo-name"></th>${days.map(k=>`<th class="mo-h${!isWorkday(k)?" we":""}${k===today?" td":""}${badDays.has(k)?" bad":""}"><span>${DOW[wdOf(k)].slice(0,1)}</span><b>${+k.slice(8)}</b></th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="cal-legend">${ids.map(id=>`<span><i class="cal-sw ${tone(id)}"></i>${esc(shiftLabel(id))}</span>`).join("")}<span><i class="cal-sw so"></i>Day off</span>${LEAVE_ORDER.map(t=>`<span><span class="lv-tag lv-${t}">${LEAVE[t][1]}</span>${LEAVE[t][0]}</span>`).join("")}<span><i class="rm lg"></i>Remote</span><span><i class="cal-sw dflt"></i>Default, not set in schedule</span></div>
-      <p class="hint">Rules: at least ${RULES().min_senior_office} senior in the office, ${(RULES().remote_pairs||[]).map(([a,b])=>`${esc(enameOf(a).split(" ")[0])} and ${esc(enameOf(b).split(" ")[0])} not remote together`).join(", ")||"no remote pairs set"}, at least 1 morning shift person in the office, and no remote days in a row (Friday then Monday counts). Change them in Settings, Team rules.</p>
+      <p class="hint">Rules: at least ${RULES().min_senior_office} senior in the office, ${(RULES().remote_pairs||[]).map(([a,b])=>`${esc(enameOf(a).split(" ")[0])} and ${esc(enameOf(b).split(" ")[0])} not remote together`).join(", ")||"no remote pairs set"}, at least 1 morning shift person in the office, and no remote days in a row (Friday then Monday counts). Change them in People, Team rules.</p>
       <p class="hint">Click a day to edit it. Shift-click another day to select a range, across agents too. Ctrl or ⌘-click to add single days. Esc closes the editor.</p>` : `<p class="empty">No tracked employees.</p>`;
     this.sel = this.sel || new Set();
     this.paintSel();
@@ -1234,73 +1353,6 @@ views.schedule = {
 function closeDayEditor(){ const p = $("#dayEd"); if(p) p.hidden = true; }
 document.addEventListener("keydown", e => { if(e.key === "Escape"){ closeDayEditor(); if(views.schedule.sel){ views.schedule.sel.clear(); views.schedule.paintSel?.(); } } });
 document.addEventListener("mousedown", e => { const p = $("#dayEd"); if(p && !p.hidden && !p.contains(e.target) && !e.target.closest?.(".ocell")) { closeDayEditor(); views.schedule.sel?.clear(); views.schedule.paintSel?.(); } });
-views.myschedule = {
-  ym:null,
-  async mount(el){
-    this.el = el; this.ym = this.ym || ymOf(dkey(now()));
-    el.innerHTML = `<div id="msBody"><p class="muted">Loading</p></div>`;
-    await this.load(); this.render();
-  },
-  async load(){
-    const a = `${this.ym}-01`, b = monthEnd(this.ym);
-    const [sc, att, ex] = await Promise.all([
-      sb.from("schedule").select("*").eq("employee_id",me.id).gte("day",a).lte("day",b),
-      sb.from("attendance").select("*").eq("employee_id",me.id).gte("day",a).lte("day",b),
-      sb.from("excused").select("*").eq("employee_id",me.id).gte("day",a).lte("day",b)
-    ]);
-    this.sched = toMap(sc.data||[], r=>r.shift_id); this.att = toMap(att.data||[], r=>r);
-    for(const r of sc.data||[]) if(r.work_mode) this.sched[`M|${r.employee_id}|${r.day}`] = r.work_mode;
-    for(const r of ex.data||[]){ this.sched[`X|${r.employee_id}|${r.day}`] = r.reason || ""; this.sched[`XT|${r.employee_id}|${r.day}`] = r.leave_type || "excused"; }
-  },
-  render(){
-    if(tab!=="myschedule") return;
-    const today = dkey(now()), days = monthKeys(this.ym);
-    const ids = Object.keys(shifts);
-    const tone = id => `s${(ids.indexOf(id) % 3) + 1}`;
-    const info = k => { const sf = shiftFor(me, k, this.sched); return sf.off ? { off:true } : { off:false, sh:sf.sh, id: ids.find(i => shifts[i]===sf.sh) }; };
-    const lead = (wdOf(days[0]) + 6) % 7;
-    const work = days.filter(k => !info(k).off), left = work.filter(k => k >= today);
-    const next = days.find(k => k > today && !info(k).off);
-    const todayInfo = days.includes(today) ? info(today) : null;
-    const counts = {}; for(const k of work){ const id = info(k).id; counts[id] = (counts[id]||0)+1; }
-    const label = sh => `${sh.start}–${sh.end}`;
-    const cur = ymOf(today), nextYm = (()=>{ const [y,m] = cur.split("-").map(Number); return new Date(Date.UTC(y,m,15)).toISOString().slice(0,7); })();
-    $("#msBody").innerHTML = `
-      <div class="ms-top">
-        <div class="ms-hero">
-          <div class="small muted">${todayInfo ? "Today" : "This month"}</div>
-          <div class="ms-big">${todayInfo ? (todayInfo.off ? "Day off" : label(todayInfo.sh)) : esc(monthLabel(this.ym))}</div>
-          <div class="small muted">${next ? `Next shift ${esc(prettyDate(next))}, ${label(info(next).sh)}` : "No more shifts this month"}</div>
-        </div>
-        <div class="ms-stat"><div class="n">${work.length}</div><div class="l muted">Working days</div></div>
-        <div class="ms-stat"><div class="n">${left.length}</div><div class="l muted">Still to go</div></div>
-        <div class="ms-stat"><div class="n">${days.length - work.length}</div><div class="l muted">Days off</div></div>
-      </div>
-      <section class="panel">
-        <div class="ms-nav">
-          <button class="btn small" id="msPrev" ${this.ym===cur?"disabled":""} aria-label="Previous month">‹</button>
-          <h2 style="margin:0">${esc(monthLabel(this.ym))}</h2>
-          <button class="btn small" id="msNext" ${this.ym===nextYm?"disabled":""} aria-label="Next month">›</button>
-        </div>
-        <div class="cal">
-          ${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=>`<div class="cal-h">${d}</div>`).join("")}
-          ${Array.from({length:lead},()=>`<div class="cal-d empty"></div>`).join("")}
-          ${days.map(k => { const x = info(k), rec = this.att[`${me.id}|${k}`];
-            const cls = ["cal-d", k===today?"today":"", k<today?"past":"", x.off?"off":""].join(" ");
-            const dot = rec ? `<span class="cal-dot ${rec.mode==="remote"?"rem":"off"}" title="${rec.mode==="remote"?"Worked remote":"Worked at the office"}"></span>` : "";
-            const exc = this.sched[`X|${me.id}|${k}`];
-            return `<div class="${cls}"><div class="cal-n">${+k.slice(8)}${dot}</div>${exc !== undefined ? `<div class="cal-exc lv-${this.sched[`XT|${me.id}|${k}`]||"excused"}" title="${esc(exc)}">${(LEAVE[this.sched[`XT|${me.id}|${k}`]||"excused"])[0]}</div>` : x.off ? `<div class="cal-off">Off</div>` : `<div class="cal-pill ${tone(x.id)}"><span>${x.sh.start}</span><span class="to">${x.sh.end}</span></div>${shiftFor(me,k,this.sched).mode==="remote" ? '<div class="cal-mode">Remote</div>' : ""}`}</div>`; }).join("")}
-        </div>
-        <div class="cal-legend">
-          ${ids.filter(id=>counts[id]).map(id=>`<span><i class="cal-sw ${tone(id)}"></i>${label(shifts[id])}, ${counts[id]} day(s)</span>`).join("")}
-          <span><i class="cal-sw so"></i>Day off</span>
-        </div>
-      </section>`;
-    $("#msPrev").onclick = async () => { this.ym = cur; await this.load(); this.render(); };
-    $("#msNext").onclick = async () => { this.ym = nextYm; await this.load(); this.render(); };
-  }
-};
-
 /* ---------- admin: employees ---------- */
 const EMP_TYPES = {
   agent:      { label:"Agent", note:"Member access. Checks in, takes breaks, earns points. In the schedule.", f:{ tracked:true, scheduled:true, is_admin:false, senior:false } },
@@ -1309,7 +1361,7 @@ const EMP_TYPES = {
   manager:    { label:"Manager / Head", note:"Full access. Not in the schedule.", f:{ tracked:false, scheduled:false, is_admin:true, senior:false } }
 };
 const empType = e => e.tracked ? "agent" : e.scheduled ? (e.senior ? "senior" : "supervisor") : "manager";
-views.people = {
+views.staff = {
   mount(el){ this.el = el; this.q = ""; this.render(); },
   render(){
     const groups = [["Agents", e => e.active && empType(e)==="agent"], ["Seniors and supervisors", e => e.active && ["senior","supervisor"].includes(empType(e))], ["Managers and heads", e => e.active && empType(e)==="manager"], ["Inactive", e => !e.active]];
@@ -1466,6 +1518,8 @@ views.settings = {
   }
 };
 
+
+views.people = sectionsView(() => [["staff","Employees",views.staff],["rules","Team rules",views.settings]]);
 /* ---------- night mode ---------- */
 const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t==="dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
 function paintThemeButtons(){ const on = isDark(); document.querySelectorAll("[data-theme-toggle]").forEach(b => { b.setAttribute("aria-pressed", String(on)); b.querySelector(".tl").textContent = on ? "Night mode on" : "Night mode off"; }); }
@@ -1494,32 +1548,33 @@ views.guide = {
     const flow = list => `<div class="flow">${list.map(([t,d],i)=>`<div class="fl"><span class="fl-n">${i+1}</span><b>${t}</b><span>${d}</span></div>`).join("")}</div>`;
     const pts = [["0","On time","By shift start","ok"],[S.late_allowance+" free","Late",`Up to ${S.late_hard_min} min, per month`,"mid"],["+1","Red",`Late after that, or over ${S.late_hard_min} min`,"red"],["+1","Black",`Absent, or over ${fmtMin(S.late_black_min)}`,"blk"],["−1 red","Early credit",`${S.early_per_clear} office early days, max ${S.max_clears}/month`,"green"]];
     const everyone = `
-      ${flow([["Check in",`Opens ${S.checkin_open_min} min before your shift`],["Status","Breaks, meetings, tasks"],["Check out","Or automatic 1 min after"],["Your month","My points and My schedule"]])}
+      ${flow([["Check in",`Opens ${S.checkin_open_min} min before your shift`],["Break or status","Breaks, meetings, tasks"],["Check out","Or automatic 1 min after"],["Your month","My month: points and schedule"]])}
       <section class="gx"><h2>Points</h2><div class="pts">${pts.map(([b,t,d,c])=>`<div class="pt ${c}"><span class="pt-b">${b}</span><b>${t}</b><span>${d}</span></div>`).join("")}</div>
         <p class="hint">${S.grace_min} min grace at shift start. Resets on the 1st. ${S.review_threshold}+ penalties in a month means a review.</p></section>
       <div class="tcs">
         ${topic("checkin","Check in",[`Shifts: ${sh}`,`Office days: within ${S.radius_m} m of the office`,"Remote days: no location","Your schedule decides office or remote"])}
-        ${topic("breaks","Status",[`${S.break_short_count}×${S.break_short_min} min, ${S.break_long_count}×${S.break_long_min} min, ${S.break_wc_count}×${S.break_wc_min} min WC`,`Not in the first or last ${S.break_edge_min} min`,`${S.min_available} teammate always stays available`,"Meetings and tasks have no limit"])}
+        ${topic("breaks","Breaks and status",[`${S.break_short_count}×${S.break_short_min} min, ${S.break_long_count}×${S.break_long_min} min, ${S.break_wc_count}×${S.break_wc_min} min WC`,`Not in the first or last ${S.break_edge_min} min`,`${S.min_available} teammate always stays available`,"Meetings and tasks have no limit"])}
         ${topic("team","End of day",["Auto check-out 1 min after your shift","Staying late? Extend shift, a manager approves",`Leaving over ${S.early_leave_min} min early is recorded`])}
-        ${topic("schedule","Schedule and leave",["See your days in My schedule",`Leave: ${LEAVE_ORDER.map(t=>LEAVE[t][0]).join(", ")}`,"Leave days carry no points"])}
+        ${topic("schedule","Schedule and leave",["See your days in My month, Schedule",`Leave: ${LEAVE_ORDER.map(t=>LEAVE[t][0]).join(", ")}`,"Leave days carry no points"])}
         ${topic("mine","Adherence and streak",[`Target ${S.adherence_target}% of your time on schedule`,"Late, early leave, absence and over-break count against it","10 on-time days in a row earns the 2-week mark"])}
         ${topic("profile","Privacy",["Team sees: name, photo, title, shift, status","Full access sees: times, distance, points","Every change is in the Activity log"])}
       </div>
-      <p class="hint">Something wrong? Open <b>Help</b> in the menu.</p>`;
+      <p class="hint">Something wrong? Open <b>Account → Help</b>. <button type="button" class="linkbtn" id="gdTour" style="margin:0 0 0 8px">Replay the tour</button></p>`;
     const full = me.is_admin ? `
       ${flow([["Weekly plan","Shifts and remote days, pick the dates"],["Fix days","Click a day in Month overview"],["Rule check","Keep it at 100%"],["Review","Download full report: week, month, year or custom dates"]])}
       <div class="tcs">
         ${topic("schedule","Schedule rules",[`${R.min_senior_office} senior in the office daily (${esc(seniors)})`,`Never remote together: ${esc(pairs)}`,R.night_needs_morning_office?"Morning shift (08 or 09): at least 1 in the office daily":"Morning office rule off",R.no_consecutive_remote?"No remote days in a row (Fri then Mon counts)":"Back-to-back remote allowed"])}
         ${topic("checkin","Editing days",["Click a day; Shift-click for a range","Ctrl or ⌘-click adds days","Weekly plan replaces day edits in its dates"])}
-        ${topic("people","Access",["<b>Full access</b>: seniors, supervisors, managers, heads","<b>Member access</b>: agents","Seniors and supervisors are in the schedule only","Add people or change roles in Employees"])}
-        ${topic("live","Daily",["Live board: who is available","Attendance today: approve overtime","Activity log: every change, by whom and when","Reports: adjust with a reason, download the full Excel report"])}
-        ${topic("settings","Rules",["Settings → Team rules holds every number","This guide updates itself from it"])}
+        ${topic("people","Access",["<b>Full access</b>: seniors, supervisors, managers, heads","<b>Member access</b>: agents","Seniors and supervisors are in the schedule only","Add people or change roles in People"])}
+        ${topic("live","Daily",["Today: live board, check-ins and overtime approvals","Reports: adjust points with a reason, download the Excel report or a quick CSV","Reports, Activity log: every change, by whom and when"])}
+        ${topic("settings","Rules",["People → Team rules holds every number","This guide updates itself from it"])}
       </div>` : "";
     el.innerHTML = `
       <div class="g-top">${me.is_admin ? `<div class="seg" id="gdTabs"><button type="button" class="seg-b ${this.part==="everyone"?"on":""}" data-v="everyone">Everyone</button><button type="button" class="seg-b ${this.part==="full"?"on":""}" data-v="full">Full access</button></div>` : ""}
         <input class="inl" id="gdQ" placeholder="Search: late, WC, overtime, remote"></div>
       <div id="gdList">${this.part==="full" && me.is_admin ? full : everyone}</div>`;
     const t = $("#gdTabs"); if(t) t.querySelectorAll(".seg-b").forEach(b => b.onclick = () => { this.part = b.dataset.v; this.mount(el); replay($("#gdList"), "pg-in"); });
+    const tr = $("#gdTour"); if(tr) tr.onclick = () => startTour();
     $("#gdQ").oninput = e => { const q = e.target.value.trim().toLowerCase();
       document.querySelectorAll("#gdList .tc, #gdList .gx, #gdList .flow").forEach(d => { d.hidden = !!q && !d.textContent.toLowerCase().includes(q); }); };
   }
@@ -1533,7 +1588,7 @@ views.issue = {
       <section class="panel"><h2>Report a problem</h2>
         <div class="grid">
           <label class="f">What is it about?<select id="isCat"><option>Check in or check out</option><option>Breaks or status</option><option>Points or report</option><option>Schedule</option><option>Location or office distance</option><option>Sign in</option><option>Something else</option></select></label>
-          <label class="f">Where did it happen?<select id="isPage">${tabsFor().filter(x=>x[0]!=="head"&&x[0]!=="help").map(x=>`<option>${esc(x[1])}</option>`).join("")}<option>Other</option></select></label>
+          <label class="f">Where did it happen?<select id="isPage">${tabsFor().filter(x=>x[0]!=="head").map(x=>`<option>${esc(x[1])}</option>`).join("")}<option>Other</option></select></label>
         </div>
         <label class="f" style="margin-top:12px">Describe the problem<textarea id="isMsg" rows="6" maxlength="2000" placeholder="What did you do, what did you expect, and what happened instead? Include the time if you can."></textarea></label>
         <div class="actions" style="justify-content:space-between;align-items:center">
@@ -1572,17 +1627,7 @@ async function squarePhoto(file){
   return new Promise(r => c.toBlob(r, "image/jpeg", 0.88));
 }
 views.profile = {
-  sub:"account",
-  mount(el){
-    this.el = el;
-    const subs = [["account","My account"], ...(me.is_admin ? [["rules","Team rules"]] : [])];
-    if(!subs.some(x=>x[0]===this.sub)) this.sub = "account";
-    el.innerHTML = `<div class="seg set-tabs" id="setTabs">${subs.map(([k,l])=>`<button type="button" class="seg-b ${k===this.sub?"on":""}" data-v="${k}">${l}</button>`).join("")}</div><div id="setBody"></div>`;
-    $("#setTabs").querySelectorAll(".seg-b").forEach(b => b.onclick = () => { this.sub = b.dataset.v; this.mount(el); replay($("#setBody"), "pg-in"); });
-    const body = $("#setBody");
-    if(this.sub === "rules"){ views.settings.mount(body); return; }
-    this.account(body);
-  },
+  mount(el){ this.el = el; this.account(el); },
   account(el){
     const sh = shifts[me.shift_id];
     el.innerHTML = `
@@ -1640,6 +1685,38 @@ views.profile = {
   }
 };
 
+
+/* Account page: profile, my schedule (managers on the schedule), how it works, help. */
+views.account = sectionsView(() => [["profile","Profile",views.profile], ...(me.scheduled && !me.tracked ? [["schedule","My schedule",views.myschedule]] : []), ["guide","How it works",views.guide], ["help","Help",views.help]]);
+/* ---------- first-login tour (3 short steps) ---------- */
+const TOUR_KEY = "opus-tour-v1";
+const tourSteps = () => me.tracked ? [
+  ["Check in on Today", `Today opens ${S.checkin_open_min} minutes before your shift. Tap the big button. On office days you need to be within ${S.radius_m} m of the office, so allow location access. Remote days need no location.`],
+  ["Breaks and status, same page", `After you check in, tap Break or status to start a break, a meeting or a task. ${S.min_available} teammate(s) always stay available, so a break can wait until someone is free. Tap Back to available when you return.`],
+  ["Your month", "My month shows your points, adherence and schedule. Check out when you finish. If you forget, it happens automatically one minute after your shift."]
+] : [
+  ["Today", "Overtime requests and other things that need you appear at the top. Below them are the live board and today's check-ins."],
+  ["Schedule", "Set the usual week once with the Weekly plan, or copy last month. Click a day to fix it. Rule problems show up with one-click fixes."],
+  ["Reports and People", "Reports has points, adherence, the Excel report and the activity log. People has employees and the team rules."]
+];
+function startTour(){
+  const dlg = $("#tourDlg"), steps = tourSteps(); let i = 0;
+  const done = () => { try{ localStorage.setItem(TOUR_KEY, "1"); }catch{} dlg.close(); };
+  const paint = () => {
+    const [title, text] = steps[i], last = i === steps.length - 1;
+    dlg.innerHTML = `<h2>${esc(title)}</h2><p class="tour-text">${esc(text)}</p>
+      <div class="tour-dots" aria-hidden="true">${steps.map((_, n) => `<i class="${n===i?"on":""}"></i>`).join("")}</div>
+      <div class="actions" style="justify-content:space-between"><button class="btn" id="tSkip">${last ? "Back" : "Skip"}</button><button class="btn primary" id="tNext">${last ? "Done" : "Next"}</button></div>`;
+    $("#tSkip").onclick = () => last ? (i--, paint()) : done();
+    $("#tNext").onclick = () => last ? done() : (i++, paint());
+  };
+  dlg.onclose = () => { try{ localStorage.setItem(TOUR_KEY, "1"); }catch{} };
+  paint(); if(!dlg.open) dlg.showModal();
+}
+function maybeTour(){
+  try{ if(localStorage.getItem(TOUR_KEY)) return; }catch{ return; }
+  if(me) startTour();
+}
 /* ---------- auth ---------- */
 function showLogin(msg){
   $("#app").hidden = true; $("#login").hidden = false;
@@ -1667,6 +1744,7 @@ $("#lVerify").onclick = async () => {
   $("#lVerify").disabled = false;
   if(error){ $("#lMsg2").textContent = "That code is wrong or expired. Request a new one."; return; }
 };
+$("#helpBtn").onclick = () => goTo("account", "guide");
 $("#signout").onclick = async () => { await sb.auth.signOut(); };
 
 let started = false, pendingMsg = "", poller = null;
@@ -1682,9 +1760,9 @@ async function startApp(){
   $("#who").innerHTML = `${avatar(me.name, me.id)}<div><div class="nm">${esc(me.name)}</div><div class="rl">${esc(roleLabel(me))}</div></div>`;
   if(me.tracked) await loadMine(ymOf(dkey(now())));
   await refreshLive();
-  renderTabs(); setTab(tab);
+  renderTabs(); setTab(tab); maybeTour();
   setInterval(() => { if(!document.hidden) refreshLive(); }, 15000);
-  if(!poller) poller = setInterval(async () => { if(document.hidden) return; if(me.tracked && ["checkin","breaks","mine"].includes(tab)){ await loadMine(ymOf(dkey(now()))); update(); } }, 60000);
+  if(!poller) poller = setInterval(async () => { if(document.hidden) return; if(me.tracked && ["today","month"].includes(tab)){ await loadMine(ymOf(dkey(now()))); update(); } }, 60000);
 }
 sb.auth.onAuthStateChange((ev, session) => {
   if(session) setTimeout(startApp, 0);
