@@ -1167,6 +1167,17 @@ function monthOptions(sel){
   for(let i=-2;i<=2;i++){ const d = new Date(Date.UTC(y, m-1+i, 15)); out.push(d.toISOString().slice(0,7)); }
   return out.map(x=>`<option value="${x}" ${x===sel?"selected":""}>${esc(monthLabel(x))}</option>`).join("");
 }
+/* The rules as plain lines, shown under the month grid. They come from People > Team rules. */
+function rulesBlock(){
+  const R = RULES();
+  const rows = [
+    ...(R.remote_pairs||[]).map(([a, b]) => ["Not remote together", `${enameOf(a)} and ${enameOf(b)}`]),
+    ...(R.night_needs_morning_office ? [["Morning shift", "At least one person must be in the office (mandatory)"]] : []),
+    ...(R.min_senior_office > 0 ? [["Senior cover", `At least ${R.min_senior_office} senior in the office every working day`]] : []),
+    ...(R.no_consecutive_remote ? [["No back-to-back remote", "Nobody works remote two working days in a row (Friday then Monday counts)"]] : [])
+  ];
+  return `<div class="rules-list"><h3>Rules</h3>${rows.map(([k, v]) => `<div class="rl-row"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("") || `<p class="muted">No rules are set.</p>`}<p class="hint">Change them in People, Team rules.</p></div>`;
+}
 views.schedule = {
   ym:null,
   mount(el){
@@ -1282,7 +1293,7 @@ views.schedule = {
     const body = list.map(e=>{ const cells = days.map(k=>cell(e,k)).join(""); return `<tr><th class="mo-name">${avatarName(e.name, e.id)}<span class="mo-cnt">${esc(e.title||"")}${e.title?" · ":""}${counts[e.id]||0} days</span></th>${cells}</tr>`; }).join("");
     $("#scBody").innerHTML = list.length ? `<div class="scroll"><table class="mo-grid"><thead><tr><th class="mo-name"></th>${days.map(k=>`<th class="mo-h${!isWorkday(k)?" we":""}${k===today?" td":""}${badDays.has(k)?" bad":""}"><span>${DOW[wdOf(k)].slice(0,1)}</span><b>${+k.slice(8)}</b></th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
       <div class="cal-legend">${ids.map(id=>`<span><i class="cal-sw ${tone(id)}"></i>${esc(shiftLabel(id))}</span>`).join("")}<span><i class="cal-sw so"></i>Day off</span>${LEAVE_ORDER.map(t=>`<span><span class="lv-tag lv-${t}">${LEAVE[t][1]}</span>${LEAVE[t][0]}</span>`).join("")}<span><i class="rm lg"></i>Remote</span><span><i class="cal-sw dflt"></i>Default, not set in schedule</span></div>
-      <p class="hint">Rules: at least ${RULES().min_senior_office} senior in the office, at least 1 morning shift person in the office, and no remote days in a row (Friday then Monday counts). Change them in People, Team rules.</p>
+      ${rulesBlock()}
       <p class="hint">Click a day to edit it. Shift-click another day to select a range, across agents too. Ctrl or ⌘-click to add single days. Esc closes the editor.</p>` : `<p class="empty">No tracked employees.</p>`;
     this.sel = this.sel || new Set();
     this.paintSel();
